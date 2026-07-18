@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+REPOSITORY_DIR="/var/lib/bouwflow-repository"
+REPOSITORY_URL="https://github.com/Boskes/BouwFlow-MVP.git"
+DEPLOYED_COMMIT_FILE="/var/www/bouwflow/deployed-commit"
+LOCK_FILE="/run/lock/bouwflow-deploy.lock"
+
+exec 9>"$LOCK_FILE"
+flock -n 9 || exit 0
+
+if [[ ! -d "$REPOSITORY_DIR/.git" ]]; then
+    git clone --no-checkout "$REPOSITORY_URL" "$REPOSITORY_DIR"
+fi
+
+cd "$REPOSITORY_DIR"
+git remote set-url origin "$REPOSITORY_URL"
+git fetch --force --prune origin \
+    '+refs/tags/production-ready:refs/tags/production-ready'
+
+release_id="$(git rev-parse 'refs/tags/production-ready^{commit}')"
+deployed_id=""
+if [[ -f "$DEPLOYED_COMMIT_FILE" ]]; then
+    deployed_id="$(tr -d '[:space:]' < "$DEPLOYED_COMMIT_FILE")"
+fi
+
+if [[ "$release_id" == "$deployed_id" ]]; then
+    exit 0
+fi
+
+git reset --hard "$release_id"
+git clean -ffdqx
+
+npm ci --no-audit --no-fund
+npm run build
+
+archive="/tmp/bouwflow-${release_id}.tar.gz"
+tar -czf "$archive" -C dist .
+
+/usr/local/bin/deploy-bouwflow "$release_id" "$archive"
+printf '%s\n' "$release_id" > "$DEPLOYED_COMMIT_FILE"
+
+echo "Geteste release $release_id is automatisch geactiveerd."

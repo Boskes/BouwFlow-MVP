@@ -1,0 +1,66 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+APP_ROOT="/var/www/bouwflow"
+RELEASES="$APP_ROOT/releases"
+CURRENT="$APP_ROOT/current"
+KEEP_RELEASES=5
+
+release_id="${1:-}"
+archive="${2:-}"
+
+if [[ ! "$release_id" =~ ^[0-9a-f]{40}$ ]]; then
+    echo "Ongeldig release-id." >&2
+    exit 2
+fi
+
+if [[ ! -f "$archive" ]]; then
+    echo "Release-archief niet gevonden: $archive" >&2
+    exit 2
+fi
+
+release="$RELEASES/$release_id"
+previous=""
+
+if [[ -L "$CURRENT" ]]; then
+    previous="$(readlink -f "$CURRENT")"
+fi
+
+cleanup_archive() {
+    rm -f -- "$archive"
+}
+trap cleanup_archive EXIT
+
+rm -rf -- "$release"
+mkdir -p "$release"
+tar -xzf "$archive" -C "$release"
+
+ln -sfn "$release" "$APP_ROOT/current.next"
+mv -Tf "$APP_ROOT/current.next" "$CURRENT"
+
+if ! curl --fail --silent --show-error \
+    --header 'Host: aifestival.be' \
+    --max-time 15 \
+    http://127.0.0.1/up >/dev/null; then
+    if [[ -n "$previous" && -d "$previous" ]]; then
+        ln -sfn "$previous" "$APP_ROOT/current.rollback"
+        mv -Tf "$APP_ROOT/current.rollback" "$CURRENT"
+    fi
+    echo "Healthcheck mislukt; de vorige release is hersteld." >&2
+    exit 1
+fi
+
+mapfile -t old_releases < <(
+    find "$RELEASES" -mindepth 1 -maxdepth 1 -type d -printf '%T@ %p\n' \
+        | sort -rn \
+        | tail -n "+$((KEEP_RELEASES + 1))" \
+        | cut -d' ' -f2-
+)
+
+for old_release in "${old_releases[@]}"; do
+    if [[ "$old_release" != "$previous" && "$old_release" != "$release" ]]; then
+        rm -rf -- "$old_release"
+    fi
+done
+
+echo "Release $release_id staat in productie."
