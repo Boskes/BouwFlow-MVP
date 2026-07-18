@@ -24,17 +24,20 @@ ook geen GitHub-token nodig, omdat de repository publiek leesbaar is.
 
 ## Eenmalige VPS-inrichting
 
-De VPS moet nginx, git, curl, tar, Node.js 22 en npm hebben. Controleer eerst:
+De VPS moet nginx, git, curl, tar, Node.js 22 en npm hebben. BouwFlow gebruikt
+een afzonderlijke Node.js 22-installatie via `/opt/node-v22`, zodat de bestaande
+applicaties hun huidige Node.js-versie kunnen behouden. Controleer eerst:
 
 ```bash
 nginx -v
 git --version
-node --version
-npm --version
+/opt/node-v22/bin/node --version
+/opt/node-v22/bin/npm --version
 ```
 
-Vite 8 vereist een recente Node.js-versie; gebruik voor deze app Node.js 22. Maak
-de release- en repositorymappen als `root`:
+Vite 8 vereist een recente Node.js-versie; gebruik voor deze app Node.js 22. De
+systemd-service zet `/opt/node-v22/bin` vooraan in zijn eigen `PATH`. Maak de
+release- en repositorymappen als `root`:
 
 ```bash
 install -d -o deploy -g deploy -m 2775 /var/www/bouwflow/releases
