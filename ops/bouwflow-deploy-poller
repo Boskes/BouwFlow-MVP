@@ -2,14 +2,12 @@
 set -Eeuo pipefail
 
 REPOSITORY_DIR="/var/lib/bouwflow-repository"
-REPOSITORY_URL="git@github.com:Boskes/BouwFlow-MVP.git"
+REPOSITORY_URL="https://github.com/Boskes/BouwFlow-MVP.git"
 DEPLOYED_COMMIT_FILE="/var/www/bouwflow/deployed-commit"
 LOCK_FILE="/run/lock/bouwflow-deploy.lock"
 
 exec 9>"$LOCK_FILE"
 flock -n 9 || exit 0
-
-export GIT_SSH_COMMAND="ssh -i /home/deploy/.ssh/github_deploy_bouwflow -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes"
 
 if [[ ! -d "$REPOSITORY_DIR/.git" ]]; then
     git clone --no-checkout "$REPOSITORY_URL" "$REPOSITORY_DIR"

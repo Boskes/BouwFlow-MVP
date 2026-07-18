@@ -14,12 +14,13 @@ De productieflow volgt hetzelfde patroon als Germanyoungcars:
 1. een pull request en iedere push naar `main` draaien lint en de productiebouw;
 2. alleen een geslaagde workflow op `main` verplaatst de tag
    `production-ready` naar de geteste commit;
-3. de VPS controleert die tag elke twee minuten met een read-only deploy key;
+3. de VPS controleert die tag elke twee minuten via de publieke HTTPS-repository;
 4. de VPS bouwt de release, activeert die via een atomische `current`-symlink en
    bewaart vijf releases;
 5. bij een mislukte healthcheck wordt de vorige release teruggezet.
 
-Er staan geen VPS-wachtwoorden of private SSH-sleutels in GitHub.
+Er staan geen VPS-wachtwoorden of private SSH-sleutels in GitHub. De poller heeft
+ook geen GitHub-token nodig, omdat de repository publiek leesbaar is.
 
 ## Eenmalige VPS-inrichting
 
@@ -61,22 +62,10 @@ systemctl daemon-reload
 
 Laat de bestaande nginx-sites voor Germanyoungcars en Bosis ongemoeid.
 
-## Read-only GitHub deploy key
+## Poller starten
 
-Maak als gebruiker `deploy` een aparte sleutel voor BouwFlow. De private sleutel
-blijft uitsluitend op de VPS:
-
-```bash
-sudo -u deploy ssh-keygen -t ed25519 \
-  -f /home/deploy/.ssh/github_deploy_bouwflow \
-  -C bouwflow-easyhost-deploy
-```
-
-Voeg de inhoud van `github_deploy_bouwflow.pub` in de GitHub-repository toe via
-**Settings > Deploy keys > Add deploy key**. Laat **Allow write access** uit. Zorg
-dat `/home/deploy/.ssh/known_hosts` de gecontroleerde GitHub-hostsleutels bevat.
-
-Start daarna de poller en controleer de eerste uitvoering:
+De poller leest de publieke repository uitsluitend via HTTPS. Start hem en
+controleer de eerste uitvoering:
 
 ```bash
 systemctl enable --now bouwflow-deploy-poller.timer
