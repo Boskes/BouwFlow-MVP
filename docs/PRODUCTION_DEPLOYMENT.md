@@ -40,7 +40,9 @@ systemd-service zet `/opt/node-v22/bin` vooraan in zijn eigen `PATH`. Maak de
 release- en repositorymappen als `root`:
 
 ```bash
-install -d -o deploy -g deploy -m 2775 /var/www/bouwflow/releases
+install -d -o deploy -g deploy -m 2775 \
+  /var/www/bouwflow \
+  /var/www/bouwflow/releases
 install -d -o deploy -g deploy -m 2775 /var/lib/bouwflow-repository
 ```
 
