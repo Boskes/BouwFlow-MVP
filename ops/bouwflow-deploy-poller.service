@@ -1,0 +1,13 @@
+[Unit]
+Description=Deploy the tested BouwFlow production release
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=deploy
+Group=deploy
+ExecStart=/usr/local/bin/bouwflow-deploy-poller
+
+[Install]
+WantedBy=multi-user.target
