@@ -2355,6 +2355,18 @@ function App() {
   const visibleNav = nav.filter((item) => canAccessPage(currentCompanyUser?.role, item.id));
   const pageAllowed = canAccessPage(currentCompanyUser?.role, page) || canExternalAccessDossier(state,currentCompanyUser,route.dossierType,route.dossierId);
   const roleHomePage: Page = currentCompanyUser?.role === "Klant" ? "client-portal" : currentCompanyUser?.role === "Onderaannemer" ? "subcontractor-portal" : currentCompanyUser?.role === "Leverancier" ? "supplier-portal" : "dashboard";
+  const demoAdministrator = state.companyUsers.find((item) => item.role === "Administrator" && item.status !== "Geblokkeerd");
+  const switchDemoSession = (userId: string) => {
+    const target = state.companyUsers.find((item) => item.id === userId && item.status !== "Geblokkeerd");
+    if (!target || connection.mode !== "browser") return;
+    actions.switchDemoUser(target.id);
+    setLegalEntityFilter("");
+    setBranchFilter("");
+    setQuery("");
+    setMobileOpen(false);
+    const targetHome: Page = target.role === "Klant" ? "client-portal" : target.role === "Onderaannemer" ? "subcontractor-portal" : target.role === "Leverancier" ? "supplier-portal" : "dashboard";
+    navigateRoute({ page: targetHome }, true);
+  };
   useEffect(() => { if (page === "dashboard" && roleHomePage !== "dashboard") setPage(roleHomePage); }, [page, roleHomePage, setPage]);
   const filteredOpportunities = scopedState.opportunities.filter((opportunity) => {
     const client = organizations.get(opportunity.organizationId)?.name ?? "";
@@ -2496,11 +2508,13 @@ function App() {
               : "Demo herstellen"}</span>
           </button>
           <div className="user-card">
-            <div className="avatar">{initials(auth.accountName)}</div>
+            <div className="avatar">{initials(connection.mode === "browser" ? currentCompanyUser?.displayName ?? auth.accountName : auth.accountName)}</div>
             <div className="user-card-details">
-              <strong>{auth.accountName}</strong>
+              <strong>{connection.mode === "browser" ? currentCompanyUser?.displayName ?? auth.accountName : auth.accountName}</strong>
               <span>
-                {auth.accountUsername ??
+                {connection.mode === "browser"
+                  ? `${currentCompanyUser?.role ?? "Demogebruiker"} · lokale testsessie`
+                  : auth.accountUsername ??
                   (connection.mode === "api"
                     ? "Verbonden werkomgeving"
                     : "Lokale MVP-sessie")}
@@ -2580,6 +2594,14 @@ function App() {
         />
 
         <section className="content" ref={contentRef}>
+          {connection.mode === "browser" && currentCompanyUser && (
+            <DemoUserSwitcher
+              users={state.companyUsers}
+              currentUser={currentCompanyUser}
+              administrator={demoAdministrator}
+              onSwitch={switchDemoSession}
+            />
+          )}
           {companyScopeVisible && <div className="mobile-company-scope">
             <CompanyScopeFilter
               entities={state.legalEntities}
@@ -17265,6 +17287,50 @@ function PanelHead({
         </button>
       )}
     </div>
+  );
+}
+
+function DemoUserSwitcher({
+  users,
+  currentUser,
+  administrator,
+  onSwitch,
+}: {
+  users: CompanyUser[];
+  currentUser: CompanyUser;
+  administrator?: CompanyUser;
+  onSwitch: (userId: string) => void;
+}) {
+  const available = users.filter((user) => user.status !== "Geblokkeerd");
+  const externalRoles = new Set(["Klant", "Onderaannemer", "Leverancier"]);
+  const internalUsers = available.filter((user) => !externalRoles.has(user.role));
+  const portalUsers = available.filter((user) => externalRoles.has(user.role));
+  const testingAnotherUser = Boolean(administrator && currentUser.id !== administrator.id);
+  return (
+    <section className={`demo-session-bar${testingAnotherUser ? " impersonating" : ""}`} aria-live="polite">
+      <span className="demo-session-icon"><Users size={18}/></span>
+      <span className="demo-session-copy">
+        <small>Demomodus · gebruikersrechten testen</small>
+        <strong>{currentUser.displayName} · {currentUser.role}</strong>
+        <span>{externalRoles.has(currentUser.role) ? "Alleen het eigen portaal en gekoppelde dossiers zijn zichtbaar." : "Navigatie, acties en persoonlijke voorkeuren volgen deze testgebruiker."}</span>
+      </span>
+      <label>
+        <span>Test als gebruiker</span>
+        <select aria-label="Demogebruiker selecteren" value={currentUser.id} onChange={(event) => onSwitch(event.target.value)}>
+          <optgroup label="Interne gebruikers">
+            {internalUsers.map((user) => <option key={user.id} value={user.id}>{user.displayName} · {user.role}</option>)}
+          </optgroup>
+          <optgroup label="Portaalgebruikers">
+            {portalUsers.map((user) => <option key={user.id} value={user.id}>{user.displayName} · {user.role}</option>)}
+          </optgroup>
+        </select>
+      </label>
+      {testingAnotherUser && administrator && (
+        <button type="button" className="secondary" onClick={() => onSwitch(administrator.id)}>
+          <ShieldCheck size={15}/>Terug naar beheerder
+        </button>
+      )}
+    </section>
   );
 }
 
