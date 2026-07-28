@@ -234,6 +234,7 @@ VITE_ENTRA_TENANT_ID=directory-tenant-id
 VITE_ENTRA_CLIENT_ID=application-id-van-bouwflow-web
 VITE_ENTRA_API_SCOPE=api://API-APPLICATION-ID/access_as_user
 VITE_ENTRA_REDIRECT_URI=https://aifestival.be
+VITE_ENTRA_DOMAIN_HINT=bosis.be
 ```
 
 Vite-variabelen zijn zichtbaar in de browser en mogen dus nooit secrets bevatten.

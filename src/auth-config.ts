@@ -3,6 +3,7 @@ export interface EntraClientConfig {
   tenantId: string
   apiScope: string
   redirectUri: string
+  domainHint: string
 }
 
 export function readEntraClientConfig(environment: Record<string, string | undefined>, origin: string): EntraClientConfig | undefined {
@@ -11,5 +12,11 @@ export function readEntraClientConfig(environment: Record<string, string | undef
   const apiScope = environment.VITE_ENTRA_API_SCOPE?.trim()
   if (!clientId && !tenantId && !apiScope) return undefined
   if (!clientId || !tenantId || !apiScope) throw new Error('VITE_ENTRA_CLIENT_ID, VITE_ENTRA_TENANT_ID en VITE_ENTRA_API_SCOPE moeten samen worden ingesteld')
-  return { clientId, tenantId, apiScope, redirectUri: environment.VITE_ENTRA_REDIRECT_URI?.trim() || origin }
+  return {
+    clientId,
+    tenantId,
+    apiScope,
+    redirectUri: environment.VITE_ENTRA_REDIRECT_URI?.trim() || origin,
+    domainHint: environment.VITE_ENTRA_DOMAIN_HINT?.trim() || 'bosis.be',
+  }
 }
