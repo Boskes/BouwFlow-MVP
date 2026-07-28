@@ -16,10 +16,11 @@ import type { AiAnalysis, AiAnalysisInput, Employee, EmployeeAbsence, EmployeeAb
 import { readOfflineSnapshot, saveOfflineSnapshot } from './offline-queue'
 import { parseBoqFileLocally } from './boq-import'
 import { searchBelgianAddressesOnline } from './belgian-addresses'
+import { buildOosterweelClass8DemoCalculation } from './class8-demo-calculation'
 
 const STORAGE_KEY = 'bouwflow.mvp.v1'
 const DEMO_DATA_VERSION_KEY = 'bouwflow.demo.version'
-const DEMO_DATA_VERSION = '2026-07-enterprise-workspace-v11-guided-dossiers'
+const DEMO_DATA_VERSION = '2026-07-enterprise-workspace-v13-oosterweel-class8'
 const FORCE_DEMO_MODE = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('mode') === 'demo'
 const API_URL = FORCE_DEMO_MODE ? undefined : import.meta.env.VITE_API_URL?.trim() as string | undefined
 
@@ -278,6 +279,7 @@ const seed: BouwFlowState = {
   ],
   organizations: [
     { id: 'org-awv', name: 'Agentschap Wegen en Verkeer', type: 'Overheid', contactName: 'Peter Vrancken', email: 'peter.vrancken@example.be', vatNumber: 'BE0200000043', addressLine: 'Koning Albert II-laan 20', postalCode: '1000', city: 'Brussel', countryCode: 'BE', peppolEndpointId: '0200000043', peppolSchemeId: '0208', activities:[{id:'crm-awv-1',type:'Afspraak',subject:'Tenderoverleg R1',startsAt:'2026-07-24T08:30:00.000Z',contactId:undefined,ownerEmployeeId:'employee-demo-sofie',status:'Gepland',notes:'Selectievoorwaarden en fasering bespreken.',createdBy:'Sofie Janssens',createdAt:'2026-07-18T09:00:00.000Z'},{id:'crm-awv-2',type:'E-mail',subject:'Nota verkeersfasering ontvangen',startsAt:'2026-07-18T13:10:00.000Z',status:'Voltooid',notes:'Aan tenderdossier gekoppeld.',createdBy:'Tenderteam',createdAt:'2026-07-18T13:15:00.000Z'}],relations:[{id:'org-rel-awv-urban',relatedOrganizationId:'org-urbanstudies',type:'Studiebureau',notes:'Ontwerppartner voor lopende infrastructuurdossiers.',createdAt:'2026-07-15T10:00:00.000Z'}] },
+    { id: 'org-lantis', name: 'Lantis', type: 'Overheid', contactName: 'Projectteam Oosterweel (demo)', email: 'oosterweel@example.be', vatNumber: '', addressLine: 'Sint-Pietersvliet 7', postalCode: '2000', city: 'Antwerpen', countryCode: 'BE', peppolEndpointId: '', peppolSchemeId: '0208', roles: ['Klant','Opdrachtgever'], contacts: [{ id:'contact-lantis-demo',firstName:'Projectteam',lastName:'Oosterweel',jobTitle:'Demo-contact',department:'Rechteroever',email:'oosterweel@example.be',phone:'',mobile:'',isPrimary:true,active:true }] },
     { id: 'org-fluvius', name: 'Fluvius', type: 'Nutsbedrijf', contactName: 'Annelies Vermeulen', email: 'annelies.vermeulen@example.be', vatNumber: 'BE0200000142', addressLine: 'Brusselsesteenweg 199', postalCode: '9090', city: 'Melle', countryCode: 'BE', peppolEndpointId: '0200000142', peppolSchemeId: '0208' },
     { id: 'org-northgate', name: 'Northgate Logistics', type: 'Privaat', contactName: 'Marc De Smet', email: 'marc.desmet@example.be', vatNumber: 'BE0200000241', addressLine: 'Logistieklaan 12', postalCode: '3600', city: 'Genk', countryCode: 'BE', peppolEndpointId: '0200000241', peppolSchemeId: '0208' },
     { id: 'org-hasselt', name: 'Stad Hasselt', type: 'Overheid', contactName: 'Evelien Claes', email: 'evelien.claes@example.be', vatNumber: 'BE0200000340', addressLine: 'Limburgplein 1', postalCode: '3500', city: 'Hasselt', countryCode: 'BE', peppolEndpointId: '0200000340', peppolSchemeId: '0208' },
@@ -295,11 +297,12 @@ const seed: BouwFlowState = {
     { id: 'opp-n72', projectNumber: 'OPP-2026-041', title: 'Herinrichting N72 – fase 2', organizationId: 'org-awv', location: 'Limburg', deadline: '2026-07-24', estimatedValue: 4_100_000, probability: 100, stage: 'Gewonnen', recognition: 'C5', tender: demoTender({ deadline:'2026-07-24', recognition:'C5', documents:['document-n72-contract'], completed:6, status:'Ingediend', ownerEmployeeId:'employee-demo-sofie', reviewerEmployeeId:'employee-demo-lars', submissionReference:'E-PROC-2026-041-78421', approved:true }) },
     { id: 'opp-genk', projectNumber: 'OPP-2026-039', title: 'Nieuw distributiecentrum Genk-Zuid', organizationId: 'org-northgate', location: 'Genk', deadline: '2026-08-14', estimatedValue: 28_700_000, probability: 70, stage: 'Offerte verstuurd', recognition: 'D7', tender: demoTender({ deadline:'2026-08-14', recognition:'D7', documents:['document-genk-bestek'], completed:6, status:'Ingediend', ownerEmployeeId:'employee-demo-lars', reviewerEmployeeId:'employee-demo-sofie', submissionReference:'NG-DCG-2026-RFP-118', approved:true }) },
     { id: 'opp-beringen', projectNumber: 'OPP-2026-042', title: 'Rioleringsprogramma Beringen 2027', organizationId: 'org-fluvius', location: 'Beringen', deadline: '2026-08-28', estimatedValue: 14_900_000, probability: 35, stage: 'Go/No-Go', recognition: 'C1', tender: demoTender({ deadline:'2026-08-28', recognition:'C1', documents:['document-beringen-bestek'], completed:4, status:'Gepland', ownerEmployeeId:'employee-demo-sofie', reviewerEmployeeId:'employee-demo-lars' }) },
-    { id: 'opp-ring', projectNumber: 'OPP-2026-047', title: 'Oosterweel deelproject R1', organizationId: 'org-awv', location: 'Antwerpen', deadline: '2026-09-18', estimatedValue: 67_500_000, probability: 45, stage: 'Calculatie', recognition: 'C5', tender: demoTender({ deadline:'2026-09-18', recognition:'C5', documents:['document-ring-selectie'], completed:3, status:'Gepland', ownerEmployeeId:'employee-demo-lars', reviewerEmployeeId:'employee-demo-sofie', questions:[{id:'question-ring-1',question:'Worden nachtvensters afzonderlijk vergoed?',askedOn:'2026-07-14',status:'Open'}], approved:true }) },
+    { id: 'opp-ring', projectNumber: 'OWV-RO-DEMO', title: 'Oosterweelverbinding – Rechteroever (publiek project, demo-calculatie)', organizationId: 'org-lantis', location: 'Antwerpen – Rechteroever', deadline: '2026-09-18', estimatedValue: 875_000_000, probability: 45, stage: 'Calculatie', recognition: 'C – Klasse 8', tender: demoTender({ deadline:'2026-09-18', recognition:'C – Klasse 8', documents:['document-ring-selectie'], completed:3, status:'Gepland', ownerEmployeeId:'employee-demo-lars', reviewerEmployeeId:'employee-demo-sofie', questions:[{id:'question-ring-1',question:'Worden nachtvensters afzonderlijk vergoed?',askedOn:'2026-07-14',status:'Open'}], approved:true }) },
     { id: 'opp-waterfront', projectNumber: 'OPP-2026-049', title: 'Waterfront Hasselt – infrastructuur', organizationId: 'org-waterweg', location: 'Hasselt', deadline: '2026-10-02', estimatedValue: 34_900_000, probability: 60, stage: 'Gekwalificeerd', recognition: 'C', tender: demoTender({ deadline:'2026-10-02', recognition:'C', documents:['document-waterfront-leidraad'], completed:2, status:'Gepland', ownerEmployeeId:'employee-demo-sofie' }) },
     { id: 'opp-campus', projectNumber: 'OPP-2026-052', title: 'Campus Gasthuisberg mobiliteitslus', organizationId: 'org-leuven', location: 'Leuven', deadline: '2026-10-30', estimatedValue: 39_400_000, probability: 25, stage: 'Nieuw', recognition: 'C5', tender: demoTender({ deadline:'2026-10-30', recognition:'C5', documents:['document-campus-selectieleidraad','document-campus-meetstaat','document-campus-plannen'], completed:1, status:'Niet gestart', questions:[{id:'question-campus-1',question:'Welke fasen moeten tijdens de examenperiode volledig verkeersvrij blijven?',askedOn:'2026-07-24',status:'Open'}] }) },
   ],
   calculations: [
+    buildOosterweelClass8DemoCalculation(),
     {
       id: 'calc-n72', number: 'CAL-2026-041', opportunityId: 'opp-n72', status: 'In opmaak', overheadPct: 8, riskPct: 3, marginPct: 10, updatedAt: todayIso(),
       chapters: [
@@ -340,22 +343,6 @@ const seed: BouwFlowState = {
         { id: 'item-beringen-2', chapterId: 'chapter-beringen-02', code: '02.01', description: 'Riolering gres DN 400 inclusief sleuf', quantity: 6400, unit: 'm', labor: 41, material: 76, equipment: 24, subcontracting: 6.5, quantityType: 'Verrekenbaar' },
         { id: 'item-beringen-3', chapterId: 'chapter-beringen-02', code: '02.02', description: 'Inspectieput prefab beton Ø1200', quantity: 94, unit: 'st', labor: 185, material: 980, equipment: 240, subcontracting: 0 },
         { id: 'item-beringen-4', chapterId: 'chapter-beringen-03', code: '03.01', description: 'Asfaltverharding tweelaags', quantity: 19750, unit: 'm²', labor: 1.95, material: 27.1, equipment: 4.35, subcontracting: 3.65 },
-      ],
-    },
-    {
-      id: 'calc-ring', number: 'CAL-2026-047', opportunityId: 'opp-ring', status: 'In opmaak', overheadPct: 9, riskPct: 8, marginPct: 11, siteOverheadPct: 5.5, escalationPct: 3, discountPct: 0, roundingStep: 1000, updatedAt: '2026-07-27T07:30:00.000Z',
-      chapters: [
-        { id: 'chapter-ring-01', code: '01', name: 'Fasering en tijdelijke infrastructuur', sortOrder: 0 },
-        { id: 'chapter-ring-02', code: '02', name: 'Grondwerken en kunstwerken', sortOrder: 1 },
-        { id: 'chapter-ring-03', code: '03', name: 'Wegenis', sortOrder: 2 },
-        { id: 'chapter-ring-04', code: '04', name: 'Technieken en signalisatie', sortOrder: 3 },
-      ],
-      items: [
-        { id: 'item-ring-1', chapterId: 'chapter-ring-01', code: '01.01', description: 'Tijdelijke verkeersinrichting fase A', quantity: 1, unit: 'GP', labor: 425000, material: 870000, equipment: 510000, subcontracting: 325000, quantityType: 'Forfaitair' },
-        { id: 'item-ring-2', chapterId: 'chapter-ring-02', code: '02.01', description: 'Massagrondverzet en afvoer', quantity: 385000, unit: 'm³', labor: 1.45, material: 0.35, equipment: 4.8, subcontracting: 1.1, quantityType: 'Verrekenbaar' },
-        { id: 'item-ring-3', chapterId: 'chapter-ring-02', code: '02.02', description: 'Gewapend beton kunstwerken', quantity: 28500, unit: 'm³', labor: 122, material: 214, equipment: 38, subcontracting: 24 },
-        { id: 'item-ring-4', chapterId: 'chapter-ring-03', code: '03.01', description: 'Asfaltverharding autosnelweg', quantity: 176000, unit: 'm²', labor: 2.05, material: 31.4, equipment: 5.1, subcontracting: 4.4 },
-        { id: 'item-ring-5', chapterId: 'chapter-ring-04', code: '04.01', description: 'Dynamische verkeerssignalisatie', quantity: 1, unit: 'GP', labor: 295000, material: 1180000, equipment: 96000, subcontracting: 740000, quantityType: 'Forfaitair' },
       ],
     },
   ],

@@ -4877,6 +4877,9 @@ function BoqEditor({
   const [bulkMessage, setBulkMessage] = useState("");
   const [pastePosition,setPastePosition]=useState<'end'|'before'|'after'>('end');
   const [formulaEditor,setFormulaEditor]=useState<{item:BoqItem;target:BoqFormulaTarget}>();
+  const [expandedChapterIds, setExpandedChapterIds] = useState<Set<string>>(
+    () => new Set(calculation.items.length > 500 ? [] : calculation.chapters.map(chapter => chapter.id)),
+  );
   const submit = (event: FormEvent) => {
     event.preventDefault();
     if (!draft.code.trim() || !draft.description.trim()) return;
@@ -4889,15 +4892,26 @@ function BoqEditor({
     void actions.addChapter(calculation.id, chapterDraft);
     setChapterDraft({ code: "", name: "" });
   };
-  const orderedChapters = [...calculation.chapters].sort(
+  const orderedChapters = useMemo(() => [...calculation.chapters].sort(
     (left, right) => left.sortOrder - right.sortOrder,
-  );
-  const orderedItems = [...calculation.items].sort((left, right) => (left.sortOrder ?? 0) - (right.sortOrder ?? 0));
-  const ungroupedItems = orderedItems.filter(
-    (item) =>
-      !item.chapterId ||
-      !calculation.chapters.some((chapter) => chapter.id === item.chapterId),
-  );
+  ), [calculation.chapters]);
+  const orderedItems = useMemo(() => [...calculation.items].sort(
+    (left, right) => (left.sortOrder ?? 0) - (right.sortOrder ?? 0),
+  ), [calculation.items]);
+  const itemsByChapter = useMemo(() => {
+    const grouped = new Map<string, BoqItem[]>();
+    orderedItems.forEach(item => {
+      if (!item.chapterId) return;
+      const chapterItems = grouped.get(item.chapterId) ?? [];
+      chapterItems.push(item);
+      grouped.set(item.chapterId, chapterItems);
+    });
+    return grouped;
+  }, [orderedItems]);
+  const chapterIds = useMemo(() => new Set(calculation.chapters.map(chapter => chapter.id)), [calculation.chapters]);
+  const ungroupedItems = useMemo(() => orderedItems.filter(
+    item => !item.chapterId || !chapterIds.has(item.chapterId),
+  ), [chapterIds, orderedItems]);
   const saveStructure = (chapters: BoqChapter[], items: BoqItem[]) => actions.updateCalculationStructure(calculation.id, {
     chapters: chapters.map((chapter, index) => ({ id: chapter.id, sortOrder: index })),
     items: items.map((item, index) => ({ id: item.id, chapterId: item.chapterId, sortOrder: index })),
@@ -4979,6 +4993,8 @@ function BoqEditor({
       <div className="boq-bulk-toolbar">
         <strong>{selectedItemIds.size} geselecteerd</strong>
         <button className="secondary" type="button" disabled={!calculation.items.length} onClick={() => setSelectedItemIds(selectedItemIds.size === calculation.items.length ? new Set() : new Set(calculation.items.map((item)=>item.id)))}>{selectedItemIds.size === calculation.items.length ? "Selectie wissen" : "Alle posten selecteren"}</button>
+        <button className="secondary" type="button" disabled={!expandedChapterIds.size} onClick={() => setExpandedChapterIds(new Set())}><PanelLeftClose size={14}/>Alles inklappen</button>
+        <button className="secondary" type="button" disabled={!orderedChapters.length || orderedChapters.every(chapter => expandedChapterIds.has(chapter.id))} onClick={() => setExpandedChapterIds(new Set(orderedChapters.map(chapter => chapter.id)))}><PanelLeftOpen size={14}/>Alles uitklappen</button>
         <select aria-label="Doelhoofdstuk" value={targetChapterId} onChange={(event)=>setTargetChapterId(event.target.value)}><option value="">Zonder hoofdstuk</option>{orderedChapters.map((chapter)=><option key={chapter.id} value={chapter.id}>{chapter.code} · {chapter.name}</option>)}</select>
         <button className="primary" type="button" disabled={!selectedItemIds.size} onClick={()=>moveSelected(targetChapterId || null)}>Selectie verplaatsen</button>
         <button className="secondary" type="button" disabled={!selectedItemIds.size} onClick={copySelected}><Copy size={14}/>Kopiëren</button>
@@ -5007,30 +5023,30 @@ function BoqEditor({
           </thead>
           <tbody>
             {orderedChapters.map((chapter) => {
-              const chapterItems = orderedItems.filter(
-                (item) => item.chapterId === chapter.id,
-              );
+              const chapterItems = itemsByChapter.get(chapter.id) ?? [];
+              const collapsed = !expandedChapterIds.has(chapter.id);
               return (
                 <Fragment key={chapter.id}>
                   <tr className="chapter-row calculation-chapter-drop" onDragOver={(event)=>{event.preventDefault();event.dataTransfer.dropEffect=event.dataTransfer.types.includes("application/x-bouwflow-calculation")?"copy":"move"}} onDrop={(event)=>{ event.preventDefault(); event.stopPropagation(); const external=readCalculationTransfer(event); if(external){onExternalTransfer(external,chapter.id);return} if (draggedItemId) { const dragged = orderedItems.find((item)=>item.id===draggedItemId); if (dragged) void saveStructure(orderedChapters,[...orderedItems.filter((item)=>item.id!==dragged.id),{...dragged,chapterId:chapter.id}]); setDraggedItemId(undefined); } }}>
                     <td className="chapter-order-cell"><button type="button" aria-label={`Hoofdstuk ${chapter.code} omhoog`} disabled={chapter === orderedChapters[0]} onClick={()=>moveChapter(chapter.id,-1)}><ArrowUp size={13}/></button><button type="button" aria-label={`Hoofdstuk ${chapter.code} omlaag`} disabled={chapter === orderedChapters.at(-1)} onClick={()=>moveChapter(chapter.id,1)}><ArrowDown size={13}/></button></td>
                     <td colSpan={9}>
-                      <strong>
-                        {chapter.code} · {chapter.name}
-                      </strong>
-                      <span>
-                        {chapterItems.length} posten ·{" "}
-                        {money(
-                          chapterItems.reduce(
-                            (sum, item) => sum + boqItemQuantity(item) * unitCost(item),
-                            0,
-                          ),
-                        )}{" "}
-                        directe kost
-                      </span>
+                      <button type="button" className="chapter-toggle" aria-expanded={!collapsed} onClick={() => setExpandedChapterIds(current => { const next = new Set(current); if(next.has(chapter.id))next.delete(chapter.id);else next.add(chapter.id);return next; })}>
+                        {collapsed ? <ChevronRight size={14}/> : <ChevronDown size={14}/>}
+                        <strong>{chapter.code} · {chapter.name}</strong>
+                        <span>
+                          {chapterItems.length} posten ·{" "}
+                          {money(
+                            chapterItems.reduce(
+                              (sum, item) => sum + boqItemQuantity(item) * unitCost(item),
+                              0,
+                            ),
+                          )}{" "}
+                          directe kost
+                        </span>
+                      </button>
                     </td>
                   </tr>
-                  {chapterItems.map((item, itemIndex) => (
+                  {!collapsed && chapterItems.map((item, itemIndex) => (
                     <BoqItemRow
                       key={item.id}
                       calculation={calculation}

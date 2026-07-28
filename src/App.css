@@ -1805,6 +1805,23 @@ button:disabled {
   }
 }
 
+.chapter-toggle {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.chapter-toggle svg {
+  flex: none;
+  color: #8b681e;
+}
+
 .workflow-correction-dialog {
   width: min(720px, 100%);
   max-height: calc(100vh - 32px);
