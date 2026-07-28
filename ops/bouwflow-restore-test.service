@@ -1,0 +1,17 @@
+[Unit]
+Description=Verify the latest BouwFlow backup by restoring it
+After=postgresql.service bouwflow-backup.service
+Requires=postgresql.service
+
+[Service]
+Type=oneshot
+User=backup
+Group=backup
+EnvironmentFile=/etc/bouwflow/backup.env
+ExecStart=/usr/local/sbin/verify-bouwflow-restore
+PrivateTmp=true
+NoNewPrivileges=true
+ProtectHome=true
+ProtectSystem=strict
+ReadOnlyPaths=/var/backups/bouwflow
+

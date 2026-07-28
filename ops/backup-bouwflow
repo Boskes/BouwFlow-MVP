@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+umask 0077
+
+: "${DATABASE_URL:?DATABASE_URL ontbreekt}"
+: "${BACKUP_GPG_RECIPIENT:?BACKUP_GPG_RECIPIENT ontbreekt}"
+
+BACKUP_ROOT="${BACKUP_ROOT:-/var/backups/bouwflow}"
+UPLOAD_ROOT="${UPLOAD_DIR:-/var/lib/bouwflow/uploads}"
+RETENTION_DAYS="${BACKUP_RETENTION_DAYS:-35}"
+LOCK_FILE="/run/lock/bouwflow-backup.lock"
+
+[[ "$BACKUP_ROOT" = /* && "$BACKUP_ROOT" != "/" ]] || { echo "Ongeldige BACKUP_ROOT" >&2; exit 2; }
+[[ "$UPLOAD_ROOT" = /* && "$UPLOAD_ROOT" != "/" ]] || { echo "Ongeldige UPLOAD_DIR" >&2; exit 2; }
+[[ "$RETENTION_DAYS" =~ ^[0-9]+$ ]] || { echo "Ongeldige bewaartermijn" >&2; exit 2; }
+
+install -d -m 0700 "$BACKUP_ROOT"
+exec 9>"$LOCK_FILE"
+flock -n 9 || exit 0
+
+timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
+work="$(mktemp -d "$BACKUP_ROOT/.backup-${timestamp}-XXXXXX")"
+archive="$BACKUP_ROOT/bouwflow-${timestamp}.tar.gpg"
+cleanup() { rm -rf -- "$work"; }
+trap cleanup EXIT
+
+pg_dump --format=custom --compress=9 --no-owner --no-acl --file="$work/database.dump" "$DATABASE_URL"
+install -d -m 0700 "$work/uploads"
+if [[ -d "$UPLOAD_ROOT" ]]; then
+  cp -a "$UPLOAD_ROOT/." "$work/uploads/"
+fi
+
+(
+  cd "$work"
+  find database.dump uploads -type f -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS
+  printf 'created_at=%s\n' "$timestamp" > BACKUP-METADATA
+)
+
+tar -C "$work" -cf - database.dump uploads SHA256SUMS BACKUP-METADATA \
+  | gpg --batch --yes --trust-model always --recipient "$BACKUP_GPG_RECIPIENT" --encrypt --output "${archive}.tmp"
+gpg --batch --quiet --decrypt "${archive}.tmp" | tar -tf - >/dev/null
+mv -- "${archive}.tmp" "$archive"
+sha256sum "$archive" > "${archive}.sha256"
+
+find "$BACKUP_ROOT" -maxdepth 1 -type f -name 'bouwflow-*.tar.gpg' -mtime "+$RETENTION_DAYS" -delete
+find "$BACKUP_ROOT" -maxdepth 1 -type f -name 'bouwflow-*.tar.gpg.sha256' -mtime "+$RETENTION_DAYS" -delete
+
+echo "Versleutelde BouwFlow-back-up voltooid: $archive"

@@ -35,7 +35,18 @@ npm ci --no-audit --no-fund
 npm run build
 
 archive="/tmp/bouwflow-${release_id}.tar.gz"
-tar -czf "$archive" -C dist .
+bundle="$(mktemp -d)"
+cleanup_bundle() {
+    rm -rf -- "$bundle"
+}
+trap cleanup_bundle EXIT
+
+mkdir -p "$bundle/public"
+cp -a dist/. "$bundle/public/"
+cp -a dist-server "$bundle/dist-server"
+cp package.json package-lock.json "$bundle/"
+npm ci --omit=dev --no-audit --no-fund --prefix "$bundle"
+tar -czf "$archive" -C "$bundle" .
 
 /usr/local/bin/deploy-bouwflow "$release_id" "$archive"
 printf '%s\n' "$release_id" > "$DEPLOYED_COMMIT_FILE"

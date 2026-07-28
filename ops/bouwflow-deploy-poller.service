@@ -8,6 +8,7 @@ Type=oneshot
 User=deploy
 Group=deploy
 Environment="PATH=/opt/node-v22/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin"
+EnvironmentFile=-/etc/bouwflow/frontend.env
 ExecStart=/usr/local/bin/bouwflow-deploy-poller
 
 [Install]

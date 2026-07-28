@@ -34,19 +34,44 @@ trap cleanup_archive EXIT
 rm -rf -- "$release"
 mkdir -p "$release"
 tar -xzf "$archive" -C "$release"
+printf 'BUILD_SHA=%s\n' "$release_id" > "$release/release.env"
 
 ln -sfn "$release" "$APP_ROOT/current.next"
 mv -Tf "$APP_ROOT/current.next" "$CURRENT"
+
+restart_api() {
+    sudo -n /bin/systemctl restart bouwflow-api.service
+}
+
+rollback() {
+    if [[ -n "$previous" && -d "$previous" ]]; then
+        ln -sfn "$previous" "$APP_ROOT/current.rollback"
+        mv -Tf "$APP_ROOT/current.rollback" "$CURRENT"
+        restart_api || true
+    fi
+}
+
+if ! restart_api; then
+    rollback
+    echo "API kon niet worden herstart; de vorige release is hersteld." >&2
+    exit 1
+fi
 
 if ! curl --fail --silent --show-error \
     --header 'Host: aifestival.be' \
     --max-time 15 \
     http://127.0.0.1/up >/dev/null; then
-    if [[ -n "$previous" && -d "$previous" ]]; then
-        ln -sfn "$previous" "$APP_ROOT/current.rollback"
-        mv -Tf "$APP_ROOT/current.rollback" "$CURRENT"
-    fi
-    echo "Healthcheck mislukt; de vorige release is hersteld." >&2
+    rollback
+    echo "Frontend-healthcheck mislukt; de vorige release is hersteld." >&2
+    exit 1
+fi
+
+if ! curl --fail --silent --show-error \
+    --header 'Host: aifestival.be' \
+    --max-time 15 \
+    http://127.0.0.1/api/health >/dev/null; then
+    rollback
+    echo "API-healthcheck mislukt; de vorige release is hersteld." >&2
     exit 1
 fi
 

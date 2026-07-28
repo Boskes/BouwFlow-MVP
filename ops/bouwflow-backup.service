@@ -1,0 +1,19 @@
+[Unit]
+Description=Create an encrypted BouwFlow backup
+After=postgresql.service
+Requires=postgresql.service
+
+[Service]
+Type=oneshot
+User=backup
+Group=backup
+EnvironmentFile=/etc/bouwflow/api.env
+EnvironmentFile=/etc/bouwflow/backup.env
+ExecStart=/usr/local/sbin/backup-bouwflow
+PrivateTmp=true
+NoNewPrivileges=true
+ProtectHome=true
+ProtectSystem=strict
+ReadOnlyPaths=/var/lib/bouwflow/uploads
+ReadWritePaths=/var/backups/bouwflow
+

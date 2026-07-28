@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+BACKUP_ROOT="${BACKUP_ROOT:-/var/backups/bouwflow}"
+MAX_BACKUP_AGE_HOURS="${MAX_BACKUP_AGE_HOURS:-36}"
+MIN_FREE_PERCENT="${MIN_FREE_PERCENT:-10}"
+
+curl --fail --silent --show-error --max-time 10 http://127.0.0.1:3001/api/health/ready >/dev/null
+curl --fail --silent --show-error --max-time 10 http://127.0.0.1:3001/internal/metrics \
+  | grep -q '^bouwflow_process_uptime_seconds '
+
+latest="$(find "$BACKUP_ROOT" -maxdepth 1 -type f -name 'bouwflow-*.tar.gpg' -printf '%T@\n' | sort -rn | head -n1)"
+[[ -n "$latest" ]] || { echo "Geen BouwFlow-back-up gevonden" >&2; exit 1; }
+now="$(date +%s)"
+age_hours="$(( (now - ${latest%.*}) / 3600 ))"
+(( age_hours <= MAX_BACKUP_AGE_HOURS )) || { echo "Laatste back-up is ${age_hours} uur oud" >&2; exit 1; }
+
+available="$(df --output=pcent /var/www/bouwflow | tail -n1 | tr -dc '0-9')"
+free="$((100 - available))"
+(( free >= MIN_FREE_PERCENT )) || { echo "Nog slechts ${free}% vrije schijfruimte" >&2; exit 1; }
+
+echo "BouwFlow healthcheck geslaagd; back-up ${age_hours} uur oud, ${free}% schijf vrij."

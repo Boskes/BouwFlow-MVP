@@ -1,0 +1,39 @@
+[Unit]
+Description=BouwFlow API
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=deploy
+Group=deploy
+WorkingDirectory=/var/www/bouwflow/current
+Environment="NODE_ENV=production"
+Environment="NODE_OPTIONS=--enable-source-maps"
+Environment="PATH=/opt/node-v22/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin"
+EnvironmentFile=/etc/bouwflow/api.env
+EnvironmentFile=-/var/www/bouwflow/current/release.env
+ExecStart=/opt/node-v22/bin/node --jitless /var/www/bouwflow/current/dist-server/server/index.js
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=20
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/bouwflow/uploads
+UMask=0027
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+LockPersonality=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+SystemCallArchitectures=native
+MemoryDenyWriteExecute=true
+TasksMax=256
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

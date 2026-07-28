@@ -8,22 +8,48 @@
   },
   "scripts": {
     "dev": "vite",
+    "api:dev": "tsx watch server/index.ts",
+    "api:start": "node dist-server/server/index.js",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "vitest run --config vitest.config.cjs",
+    "security:audit": "npm audit --omit=dev --audit-level=high",
+    "performance:check": "node scripts/check-bundle-budget.mjs",
+    "release:check": "npm test && npm run lint && npm run build && npm run performance:check && npm run security:audit"
   },
   "dependencies": {
+    "@azure/msal-browser": "^5.17.1",
+    "@fastify/cors": "^11.3.0",
+    "@fastify/multipart": "^10.1.0",
+    "@types/pdfkit": "^0.17.6",
+    "exceljs": "^4.4.0",
+    "fastify": "^5.10.0",
+    "jose": "^6.2.3",
     "lucide-react": "^1.25.0",
+    "pdfkit": "^0.19.1",
+    "pg": "^8.22.0",
     "react": "^19.2.7",
-    "react-dom": "^19.2.7"
+    "react-dom": "^19.2.7",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@types/node": "^24.13.2",
+    "@types/pg": "^8.20.0",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.3",
+    "fake-indexeddb": "^6.2.5",
     "oxlint": "^1.71.0",
+    "pg-mem": "^3.0.14",
+    "tsx": "^4.23.1",
     "typescript": "~6.0.2",
-    "vite": "^8.1.1"
+    "vite": "^8.1.1",
+    "vitest": "^4.1.10"
+  },
+  "overrides": {
+    "exceljs": {
+      "uuid": "^11.1.1"
+    }
   }
 }

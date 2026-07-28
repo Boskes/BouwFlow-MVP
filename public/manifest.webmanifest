@@ -1,0 +1,14 @@
+{
+  "name": "BouwFlow Project ERP",
+  "short_name": "BouwFlow",
+  "description": "Geïntegreerd project-, calculatie- en werfbeheer voor de bouwsector.",
+  "lang": "nl-BE",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#111923",
+  "theme_color": "#111923",
+  "icons": [
+    { "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}

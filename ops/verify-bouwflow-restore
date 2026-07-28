@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+umask 0077
+
+: "${BACKUP_ROOT:?BACKUP_ROOT ontbreekt}"
+
+[[ "$BACKUP_ROOT" = /* && "$BACKUP_ROOT" != "/" ]] || { echo "Ongeldige BACKUP_ROOT" >&2; exit 2; }
+LOCK_FILE="/run/lock/bouwflow-restore-test.lock"
+exec 9>"$LOCK_FILE"
+flock -n 9 || exit 0
+
+backup="$(find "$BACKUP_ROOT" -maxdepth 1 -type f -name 'bouwflow-*.tar.gpg' -printf '%T@ %p\n' | sort -rn | head -n1 | cut -d' ' -f2-)"
+[[ -n "$backup" && -f "$backup" ]] || { echo "Geen back-up gevonden" >&2; exit 1; }
+sha256sum --check "${backup}.sha256"
+
+work="$(mktemp -d /tmp/bouwflow-restore-XXXXXX)"
+restore_db="bouwflow_restore_$(date -u +%Y%m%d%H%M%S)_$$"
+[[ "$restore_db" =~ ^bouwflow_restore_[0-9]+_[0-9]+$ ]] || exit 2
+database_created=false
+cleanup() {
+  if [[ "$database_created" = true ]]; then dropdb --if-exists -- "$restore_db"; fi
+  rm -rf -- "$work"
+}
+trap cleanup EXIT
+
+gpg --batch --quiet --decrypt "$backup" | tar -C "$work" -xf -
+(
+  cd "$work"
+  sha256sum --check SHA256SUMS
+)
+
+createdb -- "$restore_db"
+database_created=true
+pg_restore --exit-on-error --no-owner --no-acl --dbname="$restore_db" "$work/database.dump"
+psql --dbname="$restore_db" --no-psqlrc --tuples-only --command="SELECT count(*) FROM tenants; SELECT count(*) FROM audit_log;" >/dev/null
+
+echo "Restoretest geslaagd voor $backup"

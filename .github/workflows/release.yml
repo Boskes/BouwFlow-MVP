@@ -1,0 +1,70 @@
+name: Promote BouwFlow to production
+
+on:
+  workflow_dispatch:
+    inputs:
+      commit_sha:
+        description: Exact geteste commit-SHA die naar productie mag
+        required: true
+        type: string
+      confirmation:
+        description: Typ exact PRODUCTIE om de livegang te bevestigen
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bouwflow-production-promotion
+  cancel-in-progress: false
+
+jobs:
+  validate-input:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require explicit production confirmation
+        env:
+          CONFIRMATION: ${{ inputs.confirmation }}
+          COMMIT_SHA: ${{ inputs.commit_sha }}
+        run: |
+          test "$CONFIRMATION" = "PRODUCTIE"
+          [[ "$COMMIT_SHA" =~ ^[0-9a-f]{40}$ ]]
+
+  release-gate:
+    needs: validate-input
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: production
+    permissions:
+      contents: write
+    steps:
+      - name: Check out the exact release commit
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.commit_sha }}
+          fetch-depth: 0
+
+      - name: Verify commit exists on main
+        env:
+          COMMIT_SHA: ${{ inputs.commit_sha }}
+        run: git merge-base --is-ancestor "$COMMIT_SHA" origin/main
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install exact dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Run final release acceptance
+        run: npm run release:check
+
+      - name: Promote exact commit
+        env:
+          COMMIT_SHA: ${{ inputs.commit_sha }}
+        run: |
+          git tag --force production-ready "$COMMIT_SHA"
+          git push --force origin refs/tags/production-ready
