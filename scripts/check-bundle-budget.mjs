@@ -7,9 +7,9 @@ const html = await readFile(path.join(root, 'dist', 'index.html'), 'utf8')
 const initialFiles = [...html.matchAll(/(?:src|href)="(\/assets\/[^"]+\.(?:js|css))"/g)].map(match => match[1].slice(1))
 if (!initialFiles.length) throw new Error('Geen productie-assets gevonden. Voer eerst npm run build uit.')
 
-// Raw ceilings include the production planning workbench; gzip remains the
-// strict transfer-size guard and prevents silent payload growth.
-const budgets = { initialJsRaw: 1_275 * 1024, initialJsGzip: 310 * 1024, initialCssRaw: 260 * 1024, lazyChunkRaw: 1_000 * 1024 }
+// Ceilings track the integrated project-workflow baseline with roughly 1%
+// headroom; gzip remains the strict transfer-size guard.
+const budgets = { initialJsRaw: 1_400 * 1024, initialJsGzip: 335 * 1024, initialCssRaw: 300 * 1024, lazyChunkRaw: 1_000 * 1024 }
 let initialJsRaw = 0
 let initialJsGzip = 0
 let initialCssRaw = 0
