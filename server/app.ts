@@ -96,7 +96,7 @@ function multipartField(fields: Record<string, unknown>, name: string) {
 }
 
 export async function buildApp({ pool, authMode = 'development', logger = false, frontendOrigin = 'http://localhost:5173', objectStorage = new LocalObjectStorage(), peppolValidator = createPeppolValidator(), peppolAccessPoint = createPeppolAccessPoint(), peppolWebhookSecret = process.env.PEPPOL_WEBHOOK_SECRET ?? '', peppolWebhookPublicUrl = process.env.PEPPOL_WEBHOOK_PUBLIC_URL ?? '', peppolStatusPollIntervalMs, peppolNotificationSender, peppolNotificationTargets: configuredNotificationTargets, peppolNotificationDispatchIntervalMs, peppolCriticalSlaMinutes = Number(process.env.PEPPOL_CRITICAL_SLA_MINUTES ?? 15), trustProxy = false, rateLimitMax = 5_000, rateLimitWindowMs = 60_000, release = 'development', requireIdempotencyKey = false, integrationGateway = createIntegrationGateway(requireIdempotencyKey), aiGateway = createAiGateway(requireIdempotencyKey), quoteMailGateway = createQuoteMailGateway(requireIdempotencyKey), documentMailGateway = createDocumentMailGateway(requireIdempotencyKey), belgianAddressSearch = new HttpBelgianAddressSearch() }: BuildAppOptions) {
-  const app = Fastify({ logger, trustProxy, bodyLimit: 12 * 1024 * 1024, requestIdHeader: 'x-request-id' })
+  const app = Fastify({ logger, trustProxy, bodyLimit: 12 * 1024 * 1024, requestIdHeader: 'x-request-id', routerOptions: { maxParamLength: 1_024 } })
   const rateLimits = new Map<string, { count: number; resetAt: number }>()
   const metrics = new ApiMetrics()
   const requestStarted = new WeakMap<FastifyRequest, bigint>()
