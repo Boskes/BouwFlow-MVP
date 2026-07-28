@@ -52,14 +52,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (!instance.current || !configResult.config) return
     setError(undefined)
     try {
-      const result = await instance.current.loginPopup({
+      await instance.current.loginRedirect({
         scopes: [configResult.config.apiScope],
         prompt: 'select_account',
         domainHint: configResult.config.domainHint,
       })
-      instance.current.setActiveAccount(result.account)
-      setAccount(result.account)
-      setPhase('authenticated')
     } catch (loginError) {
       setError(loginError instanceof Error ? loginError.message : 'Aanmelden is mislukt')
       setPhase('unauthenticated')
@@ -68,9 +65,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = useCallback(async () => {
     if (!instance.current) return
-    await instance.current.logoutPopup({ account, mainWindowRedirectUri: window.location.origin })
-    setAccount(undefined)
-    setPhase('unauthenticated')
+    await instance.current.logoutRedirect({ account })
   }, [account])
 
   const getAccessToken = useCallback(async () => {
