@@ -42,3 +42,11 @@ jobs:
 
       - name: Build production application
         run: npm run build
+
+      - name: Validate public trust files
+        run: |
+          test -f dist/.well-known/security.txt
+          test -f dist/robots.txt
+          test -f dist/sitemap.xml
+          grep -q 'Canonical: https://aifestival.be/.well-known/security.txt' dist/.well-known/security.txt
+          grep -q 'https://aifestival.be/sitemap.xml' dist/robots.txt

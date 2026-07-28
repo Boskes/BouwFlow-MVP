@@ -1,0 +1,5 @@
+Contact: mailto:jurgen.bosmans@bosis.be
+Canonical: https://aifestival.be/.well-known/security.txt
+Policy: https://aifestival.be/over-bouwflow.html
+Preferred-Languages: nl, en
+Expires: 2027-07-28T23:59:59Z
