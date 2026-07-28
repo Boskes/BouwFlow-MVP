@@ -52,7 +52,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (!instance.current || !configResult.config) return
     setError(undefined)
     try {
-      const result = await instance.current.loginPopup({ scopes: [configResult.config.apiScope], prompt: 'select_account' })
+      const result = await instance.current.loginPopup({
+        scopes: [configResult.config.apiScope],
+        prompt: 'select_account',
+        domainHint: configResult.config.domainHint,
+      })
       instance.current.setActiveAccount(result.account)
       setAccount(result.account)
       setPhase('authenticated')
