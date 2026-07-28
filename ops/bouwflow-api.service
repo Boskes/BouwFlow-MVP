@@ -13,7 +13,7 @@ Environment="NODE_OPTIONS=--enable-source-maps"
 Environment="PATH=/opt/node-v22/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin"
 EnvironmentFile=/etc/bouwflow/api.env
 EnvironmentFile=-/var/www/bouwflow/current/release.env
-ExecStart=/opt/node-v22/bin/node --jitless /var/www/bouwflow/current/dist-server/server/index.js
+ExecStart=/opt/node-v22/bin/node /var/www/bouwflow/current/dist-server/server/index.js
 Restart=on-failure
 RestartSec=3
 TimeoutStopSec=20
@@ -31,7 +31,6 @@ RestrictRealtime=true
 LockPersonality=true
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 SystemCallArchitectures=native
-MemoryDenyWriteExecute=true
 TasksMax=256
 LimitNOFILE=65536
 

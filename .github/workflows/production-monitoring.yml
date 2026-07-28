@@ -1,0 +1,66 @@
+name: Monitor production domains
+
+on:
+  schedule:
+    - cron: '17 5 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  production-health:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check public endpoints
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          urls=(
+            'https://aifestival.be/'
+            'https://aifestival.be/api/health'
+            'https://aifestival.be/.well-known/security.txt'
+            'https://aifestival.be/robots.txt'
+            'https://aifestival.be/sitemap.xml'
+            'https://bosis.be/'
+            'https://bosis.be/.well-known/security.txt'
+            'https://bosis.be/robots.txt'
+            'https://bosis.be/sitemap.xml'
+            'https://germanyoungcars.be/'
+            'https://germanyoungcars.be/.well-known/security.txt'
+            'https://germanyoungcars.be/robots.txt'
+            'https://germanyoungcars.be/sitemap.xml'
+          )
+
+          for url in "${urls[@]}"; do
+            curl \
+              --fail \
+              --silent \
+              --show-error \
+              --location \
+              --retry 3 \
+              --retry-all-errors \
+              --connect-timeout 10 \
+              --max-time 30 \
+              --output /dev/null \
+              "$url"
+          done
+
+      - name: Require at least 14 days of TLS validity
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          for domain in aifestival.be bosis.be germanyoungcars.be; do
+            certificate="$(
+              openssl s_client \
+                -connect "$domain:443" \
+                -servername "$domain" \
+                </dev/null 2>/dev/null
+            )"
+            printf '%s\n' "$certificate" \
+              | openssl x509 -checkend 1209600 -noout
+          done

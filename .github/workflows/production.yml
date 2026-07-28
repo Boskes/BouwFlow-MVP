@@ -50,3 +50,10 @@ jobs:
           test -f dist/sitemap.xml
           grep -q 'Canonical: https://aifestival.be/.well-known/security.txt' dist/.well-known/security.txt
           grep -q 'https://aifestival.be/sitemap.xml' dist/robots.txt
+
+      - name: Validate production service compatibility
+        run: |
+          ! grep -q -- '--jitless' ops/bouwflow-api.service
+          ! grep -q '^MemoryDenyWriteExecute=true$' ops/bouwflow-api.service
+          grep -q 'chmod 0711 "$release"' ops/deploy-bouwflow
+          grep -q 'find "$release/public" -type d' ops/deploy-bouwflow
