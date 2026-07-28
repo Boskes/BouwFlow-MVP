@@ -545,7 +545,7 @@ describe('BouwFlow API', () => {
     ]))
     expect(opportunityAuditResponse.json()[0]).not.toHaveProperty('oldValue')
     expect(opportunityAuditResponse.json()[0]).not.toHaveProperty('newValue')
-    const preferenceKey = 'table-v1:opportunities:0:project.status'
+    const preferenceKey = 'table-v1:calculations:0:calculatie-project.opdrachtgever.status.deadline.directe-kost.verkoopwaarde.marge.controles.kolom-9'
     const savedPreference = await app.inject({ method: 'PATCH', url: `/api/user-preferences/${encodeURIComponent(preferenceKey)}`, payload: { value: { order: ['project', 'status'], widths: { project: 240 }, filters: { status: 'Go' } } } })
     expect(savedPreference.statusCode, savedPreference.body).toBe(200)
     const loadedPreference = await app.inject({ method: 'GET', url: `/api/user-preferences/${encodeURIComponent(preferenceKey)}` })
