@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { autoSchedulePlanningActivities, boqPriceBreakdown, bulkBoqPriceAdjustmentPreview, cashFlowEntries, cashFlowPeriods, class8CalculationTemplates, costLibraryMatchesScope, criticalPathActivityIds, criticalPathAnalysis, effectiveBoqValues, peppolOperations, planningConflicts, planningTimelineRange, postCalculationAnalysis, qhseAlerts, qhseCertificateStatus, sellingTotal, unitConversionFactor, unitCost, type BoqItem, type BouwFlowState, type Calculation, type CostLibrary, type PeppolDelivery, type Project, type SalesInvoice } from './domain'
+import { autoSchedulePlanningActivities, boqPriceBreakdown, bulkBoqPriceAdjustmentPreview, cashFlowEntries, cashFlowPeriods, class8CalculationTemplates, costLibraryMatchesScope, criticalPathActivityIds, criticalPathAnalysis, effectiveBoqValues, normalizeTenderDossier, peppolOperations, planningConflicts, planningTimelineRange, postCalculationAnalysis, qhseAlerts, qhseCertificateStatus, sellingTotal, unitConversionFactor, unitCost, type BoqItem, type BouwFlowState, type Calculation, type CostLibrary, type PeppolDelivery, type Project, type SalesInvoice } from './domain'
 
 const project = { id: 'project-1', number: 'PRJ-001', name: 'Testwerf' } as Project
 
@@ -21,6 +21,31 @@ const state: BouwFlowState = {
     { id: 'order-2', number: 'BB-002', procurementRequestId: 'request-2', projectId: project.id, supplierId: 'supplier-1', orderDate: '2027-03-01', expectedDeliveryDate: '2027-04-01', amount: 1000, status: 'Besteld', commitmentCostId: 'cost-2', createdAt: '2027-03-01T00:00:00.000Z' },
   ],
 }
+
+describe('tenderdossiers', () => {
+  it('maakt oudere gedeeltelijke tenderdata veilig voor alle schermen', () => {
+    const tender = normalizeTenderDossier({
+      questions: [],
+    })
+
+    expect(tender.procedureType).toBe('Openbaar')
+    expect(tender.selectionConditions).toEqual([])
+    expect(tender.awardCriteria).toEqual([])
+    expect(tender.requiredDocumentIds).toEqual([])
+    expect(tender.questions).toEqual([])
+    expect(tender.siteVisits).toEqual([])
+    expect(tender.competitors).toEqual([])
+    expect(tender.deadlineWarningDays).toEqual([30, 14, 7, 2])
+  })
+
+  it('neemt document-ID’s over uit de oude documents-eigenschap', () => {
+    const tender = normalizeTenderDossier({
+      documents: ['bestek-1', 123, 'plan-2'],
+    } as never)
+
+    expect(tender.requiredDocumentIds).toEqual(['bestek-1', 'plan-2'])
+  })
+})
 
 describe('eenheden en conversies', () => {
   const units = [

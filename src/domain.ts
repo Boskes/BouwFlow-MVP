@@ -340,6 +340,33 @@ export interface TenderDossier {
   updatedAt: string
 }
 
+export function normalizeTenderDossier(value: Partial<TenderDossier> | null | undefined): TenderDossier {
+  const tender = value ?? {}
+  const legacyDocuments = (tender as Partial<TenderDossier> & { documents?: unknown }).documents
+  const requiredDocumentIds = Array.isArray(tender.requiredDocumentIds)
+    ? tender.requiredDocumentIds
+    : Array.isArray(legacyDocuments)
+      ? legacyDocuments.filter((item): item is string => typeof item === 'string')
+      : []
+
+  return {
+    ...tender,
+    procedureType: tender.procedureType ?? 'Openbaar',
+    submissionDeadline: tender.submissionDeadline ?? '',
+    executionPeriod: tender.executionPeriod ?? '',
+    recognitionClass: tender.recognitionClass ?? '',
+    recognitionCategory: tender.recognitionCategory ?? '',
+    selectionConditions: Array.isArray(tender.selectionConditions) ? tender.selectionConditions : [],
+    awardCriteria: Array.isArray(tender.awardCriteria) ? tender.awardCriteria : [],
+    requiredDocumentIds,
+    questions: Array.isArray(tender.questions) ? tender.questions : [],
+    siteVisits: Array.isArray(tender.siteVisits) ? tender.siteVisits : [],
+    competitors: Array.isArray(tender.competitors) ? tender.competitors : [],
+    deadlineWarningDays: Array.isArray(tender.deadlineWarningDays) ? tender.deadlineWarningDays : [30, 14, 7, 2],
+    updatedAt: tender.updatedAt ?? '',
+  }
+}
+
 export type OpportunityDetailsInput = Pick<Opportunity, 'title' | 'organizationId' | 'legalEntityId' | 'branchId' | 'location' | 'deadline' | 'estimatedValue' | 'probability' | 'recognition'>
 
 export type BoqPostType = 'Meetstaatpost' | 'Samengestelde post' | 'Percentagepost' | 'Stelpost' | 'Optiepost' | 'Tekstregel' | 'Subtotaal'
