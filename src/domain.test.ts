@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { autoSchedulePlanningActivities, boqPriceBreakdown, bulkBoqPriceAdjustmentPreview, cashFlowEntries, cashFlowPeriods, class8CalculationTemplates, costLibraryMatchesScope, criticalPathActivityIds, criticalPathAnalysis, effectiveBoqValues, peppolOperations, planningConflicts, postCalculationAnalysis, qhseAlerts, qhseCertificateStatus, sellingTotal, unitConversionFactor, unitCost, type BoqItem, type BouwFlowState, type Calculation, type CostLibrary, type PeppolDelivery, type Project, type SalesInvoice } from './domain'
+import { autoSchedulePlanningActivities, boqPriceBreakdown, bulkBoqPriceAdjustmentPreview, cashFlowEntries, cashFlowPeriods, class8CalculationTemplates, costLibraryMatchesScope, criticalPathActivityIds, criticalPathAnalysis, effectiveBoqValues, peppolOperations, planningConflicts, planningTimelineRange, postCalculationAnalysis, qhseAlerts, qhseCertificateStatus, sellingTotal, unitConversionFactor, unitCost, type BoqItem, type BouwFlowState, type Calculation, type CostLibrary, type PeppolDelivery, type Project, type SalesInvoice } from './domain'
 
 const project = { id: 'project-1', number: 'PRJ-001', name: 'Testwerf' } as Project
 
@@ -70,6 +70,20 @@ describe('geavanceerde klasse-8-calculatie', () => {
 
 describe('portfolioplanning', () => {
   const activity = (id: string, startDate: string, endDate: string, predecessorIds: string[] = []) => ({ id, name: id, startDate, endDate, progress: 0, predecessorIds, milestone: false, responsible: 'Planner', crewSize: 2, weatherSensitive: false, resourceAssignments: [{ id: `${id}-resource`, resourceType: 'Materieel' as const, resourceName: 'Rupskraan 25t', allocationPct: 100 }] })
+
+  it('gebruikt projectdatums voor een Gantt zonder activiteiten', () => {
+    expect(planningTimelineRange([], '2026-09-01', '2033-12-31', '2026-07-29')).toEqual({
+      startDate: '2026-09-01',
+      endDate: '2033-12-31',
+    })
+  })
+
+  it('valt bij ontbrekende of ongeldige projectdatums veilig terug op vandaag', () => {
+    expect(planningTimelineRange([], '', 'ongeldig', '2026-07-29')).toEqual({
+      startDate: '2026-07-29',
+      endDate: '2026-07-29',
+    })
+  })
 
   it('detecteert dubbele resourceboekingen over projecten heen', () => {
     const projects = [
