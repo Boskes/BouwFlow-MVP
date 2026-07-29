@@ -29,6 +29,24 @@ describe('BouwFlowApi', () => {
     await expect(api.offlineScope()).resolves.toBe('https://api.example.test|tenant-a|user-a')
   })
 
+  it('stuurt de gekozen demogebruiker mee en isoleert diens offline gegevens', async () => {
+    const claims = globalThis.btoa(JSON.stringify({ tid: 'tenant-a', oid: 'admin-a' })).replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_')
+    const fetcher = vi.fn(async () => new Response(JSON.stringify({ organizations: [], opportunities: [], calculations: [], quotes: [], projects: [] }), { status: 200, headers: { 'Content-Type': 'application/json' } }))
+    const api = new BouwFlowApi('https://api.example.test/', fetcher, async () => `header.${claims}.signature`)
+
+    api.setDemoUser('demo-client')
+    await api.bootstrap()
+
+    expect(fetcher).toHaveBeenCalledWith(
+      'https://api.example.test/api/bootstrap',
+      expect.objectContaining({ headers: expect.objectContaining({ 'X-BouwFlow-Demo-User': 'demo-client' }) }),
+    )
+    await expect(api.offlineScope()).resolves.toBe('https://api.example.test|tenant-a|admin-a|demo:demo-client')
+
+    api.setDemoUser()
+    await expect(api.offlineScope()).resolves.toBe('https://api.example.test|tenant-a|admin-a')
+  })
+
   it('vertaalt API-fouten naar een bruikbare fout', async () => {
     const fetcher = vi.fn(async () => new Response(JSON.stringify({ message: 'Calculatie niet gevonden' }), { status: 404, headers: { 'Content-Type': 'application/json' } }))
     const api = new BouwFlowApi('https://api.example.test', fetcher)

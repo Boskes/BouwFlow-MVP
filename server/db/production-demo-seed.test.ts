@@ -32,7 +32,7 @@ describe('production demo seed', () => {
   it('vult de lege BouwFlow-tenant met de klasse 8-calculatie en een project', async () => {
     await expect(ensureProductionDemoData(pool, adminContext)).resolves.toBe(true)
 
-    const [calculations, chapters, items, projects, reports, costs, changes, forecasts, pipeline] = await Promise.all([
+    const [calculations, chapters, items, projects, reports, costs, changes, forecasts, pipeline, users, documents, quotes, statements, invoices, orders, certificates, blueprint, tender] = await Promise.all([
       pool.query<{ count: string }>('SELECT count(*)::text AS count FROM calculations WHERE tenant_id=$1', [BOUWFLOW_DEMO_TENANT_ID]),
       pool.query<{ count: string }>('SELECT count(*)::text AS count FROM boq_chapters WHERE tenant_id=$1', [BOUWFLOW_DEMO_TENANT_ID]),
       pool.query<{ count: string }>('SELECT count(*)::text AS count FROM boq_items WHERE tenant_id=$1', [BOUWFLOW_DEMO_TENANT_ID]),
@@ -42,6 +42,15 @@ describe('production demo seed', () => {
       pool.query<{ count: string }>('SELECT count(*)::text AS count FROM change_orders WHERE tenant_id=$1', [BOUWFLOW_DEMO_TENANT_ID]),
       pool.query<{ count: string }>('SELECT count(*)::text AS count FROM project_forecasts WHERE tenant_id=$1', [BOUWFLOW_DEMO_TENANT_ID]),
       pool.query<{ count: string }>('SELECT count(*)::text AS count FROM opportunities WHERE tenant_id=$1', [BOUWFLOW_DEMO_TENANT_ID]),
+      pool.query<{ count: string }>("SELECT count(*)::text AS count FROM users WHERE tenant_id=$1 AND email LIKE '%@demo.aifestival.be'", [BOUWFLOW_DEMO_TENANT_ID]),
+      pool.query<{ count: string }>('SELECT count(*)::text AS count FROM documents WHERE tenant_id=$1', [BOUWFLOW_DEMO_TENANT_ID]),
+      pool.query<{ count: string }>('SELECT count(*)::text AS count FROM quotes WHERE tenant_id=$1', [BOUWFLOW_DEMO_TENANT_ID]),
+      pool.query<{ count: string }>('SELECT count(*)::text AS count FROM progress_statements WHERE tenant_id=$1', [BOUWFLOW_DEMO_TENANT_ID]),
+      pool.query<{ count: string }>('SELECT count(*)::text AS count FROM sales_invoices WHERE tenant_id=$1', [BOUWFLOW_DEMO_TENANT_ID]),
+      pool.query<{ count: string }>('SELECT count(*)::text AS count FROM purchase_orders WHERE tenant_id=$1', [BOUWFLOW_DEMO_TENANT_ID]),
+      pool.query<{ count: string }>('SELECT count(*)::text AS count FROM qhse_certificates WHERE tenant_id=$1', [BOUWFLOW_DEMO_TENANT_ID]),
+      pool.query<{ employees: unknown; subcontractors: unknown; work_tickets: unknown; project_contracts: unknown }>('SELECT employees,subcontractors,work_tickets,project_contracts FROM blueprint_state WHERE tenant_id=$1', [BOUWFLOW_DEMO_TENANT_ID]),
+      pool.query<{ tender: unknown }>('SELECT tender FROM opportunities WHERE tenant_id=$1 AND id=$2', [BOUWFLOW_DEMO_TENANT_ID, '20000000-0000-4000-8000-000000000002']),
     ])
 
     expect(calculations.rows[0].count).toBe('1')
@@ -49,10 +58,28 @@ describe('production demo seed', () => {
     expect(items.rows[0].count).toBe('2000')
     expect(projects.rows[0].count).toBe('1')
     expect(reports.rows[0].count).toBe('3')
-    expect(costs.rows[0].count).toBe('6')
+    expect(costs.rows[0].count).toBe('7')
     expect(changes.rows[0].count).toBe('2')
     expect(forecasts.rows[0].count).toBe('2')
     expect(pipeline.rows[0].count).toBe('4')
+    expect(users.rows[0].count).toBe('10')
+    expect(documents.rows[0].count).toBe('5')
+    expect(quotes.rows[0].count).toBe('1')
+    expect(statements.rows[0].count).toBe('2')
+    expect(invoices.rows[0].count).toBe('1')
+    expect(orders.rows[0].count).toBe('1')
+    expect(certificates.rows[0].count).toBe('2')
+    expect(blueprint.rows[0]).toMatchObject({
+      employees: expect.arrayContaining([expect.objectContaining({ role: 'Tender manager' }), expect.objectContaining({ role: 'Werfleider' })]),
+      subcontractors: [expect.objectContaining({ name: 'Delta Infra NV', progressClaims: expect.any(Array) })],
+      work_tickets: expect.arrayContaining([expect.objectContaining({ status: 'Ter ondertekening' })]),
+      project_contracts: [expect.objectContaining({ approvalStatus: 'Goedgekeurd' })],
+    })
+    expect(tender.rows[0].tender).toMatchObject({
+      submissionPlan: expect.objectContaining({ ownerEmployeeId: expect.any(String), reviewerEmployeeId: expect.any(String) }),
+      requiredDocumentIds: expect.any(Array),
+      siteVisits: expect.any(Array),
+    })
   }, 15_000)
 
   it('blijft idempotent na een procesherstart en dupliceert de kerncalculatie niet', async () => {

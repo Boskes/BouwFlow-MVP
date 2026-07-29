@@ -226,7 +226,6 @@ import {
   type WorkflowDefinitionInput,
 } from "./domain";
 import { canPerform, pageLabels, roleDefinition, roleDefinitions, workflowFor } from "./administration";
-import type { ProfilePreviewRole } from "./ProfilePreviewBar";
 import { useBouwFlowStore } from "./store";
 import { useAuth } from "./auth-context";
 import { pageForDossier, workspacePath, workspaceRouteFromLocation, writeWorkspaceRoute, type DossierType, type WorkspaceRoute } from "./routing";
@@ -764,23 +763,6 @@ function scopeStateByCompany(
 }
 
 const ProfilePreviewBar = lazy(() => import("./ProfilePreviewBar"));
-
-function profilePreviewUser(state: BouwFlowState, role: ProfilePreviewRole): CompanyUser {
-  const project = state.projects[0];
-  const organization = state.organizations.find((item) => item.id === project?.organizationId);
-  return {
-    id: `preview:${role}`,
-    displayName: role === "Klant" ? organization?.contactName || "Opdrachtgever" : role,
-    email: role === "Klant" ? organization?.email || "klant@demo.local" : `${role.toLowerCase()}@demo.local`,
-    role,
-    status: "Actief",
-    allLegalEntities: role !== "Klant",
-    legalEntityIds: project?.legalEntityId ? [project.legalEntityId] : [],
-    allProjects: role !== "Klant",
-    projectIds: project ? [project.id] : [],
-    organizationId: role === "Klant" ? organization?.id : undefined,
-  };
-}
 
 const date = (value?: string) => {
   if (!value) return "—";
@@ -2227,12 +2209,23 @@ function App() {
       : workspaceRouteFromLocation(window.location),
   );
   const page = route.page;
-  const [profilePreviewRole, setProfilePreviewRole] = useState<ProfilePreviewRole>();
-  const actualCompanyUser = state.companyUsers.find((item) => item.id === state.currentUserId);
-  const canUseProfilePreview = connection.mode === "api" && actualCompanyUser?.role === "Administrator";
-  const previewUser = useMemo(() => canUseProfilePreview && profilePreviewRole ? profilePreviewUser(state, profilePreviewRole) : undefined, [canUseProfilePreview, profilePreviewRole, state]);
-  const presentationState = useMemo(() => previewUser ? { ...state, currentUserId: previewUser.id, companyUsers: [...state.companyUsers, previewUser] } : state, [previewUser, state]);
-  const profilePreviewActive = Boolean(previewUser);
+  const [profilePreviewUserId, setProfilePreviewUserId] = useState<string>();
+  const [profilePreviewUsers, setProfilePreviewUsers] = useState<CompanyUser[]>([]);
+  const [profilePreviewAdministrator, setProfilePreviewAdministrator] = useState<CompanyUser>();
+  const [profilePreviewSwitching, setProfilePreviewSwitching] = useState(false);
+  const stateCompanyUser = state.companyUsers.find((item) => item.id === state.currentUserId);
+  useEffect(() => {
+    if (connection.mode !== "api" || stateCompanyUser?.role !== "Administrator") return;
+    setProfilePreviewAdministrator(stateCompanyUser);
+    setProfilePreviewUsers(state.companyUsers.filter((item) =>
+      item.role !== "Administrator" &&
+      item.status === "Actief" &&
+      item.email.toLowerCase().endsWith("@demo.aifestival.be"),
+    ));
+  }, [connection.mode, state.companyUsers, stateCompanyUser]);
+  const canUseProfilePreview = connection.mode === "api" && Boolean(profilePreviewAdministrator);
+  const presentationState = state;
+  const profilePreviewActive = Boolean(profilePreviewUserId);
   const dossierPreferenceUser = state.currentUserId || auth.accountUsername || "local-user";
   const sidebarPreferenceStorageKey = `bouwflow-sidebar-v1:${dossierPreferenceUser}`;
   const navigationPreferenceStorageKey = `bouwflow-navigation-groups-v1:${dossierPreferenceUser}`;
@@ -2395,14 +2388,30 @@ function App() {
     const targetHome: Page = target.role === "Klant" ? "client-portal" : target.role === "Onderaannemer" ? "subcontractor-portal" : target.role === "Leverancier" ? "supplier-portal" : "dashboard";
     navigateRoute({ page: targetHome }, true);
   };
-  const switchProfilePreview = (role?: ProfilePreviewRole) => {
-    if (!canUseProfilePreview) return;
-    setProfilePreviewRole(role);
+  const switchProfilePreview = async (userId?: string) => {
+    if (!canUseProfilePreview || profilePreviewSwitching) return;
+    const target = userId ? profilePreviewUsers.find((item) => item.id === userId) : undefined;
+    if (userId && !target) return;
+    setProfilePreviewSwitching(true);
+    setProfilePreviewUserId(userId);
     setLegalEntityFilter("");
     setBranchFilter("");
     setQuery("");
-    const targetHome: Page = role === "Klant" ? "client-portal" : "dashboard";
-    navigateRoute({ page: targetHome }, true);
+    try {
+      await actions.switchApiDemoUser(userId);
+      const targetHome: Page = target?.role === "Klant"
+        ? "client-portal"
+        : target?.role === "Onderaannemer"
+          ? "subcontractor-portal"
+          : target?.role === "Leverancier"
+            ? "supplier-portal"
+            : target?.role === "Werfleider"
+              ? "site"
+              : "dashboard";
+      navigateRoute({ page: targetHome }, true);
+    } finally {
+      setProfilePreviewSwitching(false);
+    }
   };
   useEffect(() => { if (page === "dashboard" && roleHomePage !== "dashboard") setPage(roleHomePage); }, [page, roleHomePage, setPage]);
   const filteredOpportunities = scopedState.opportunities.filter((opportunity) => {
@@ -2546,11 +2555,13 @@ function App() {
               : "Demo herstellen"}</span>
           </button>
           <div className="user-card">
-            <div className="avatar">{initials(connection.mode === "browser" ? currentCompanyUser?.displayName ?? auth.accountName : auth.accountName)}</div>
+            <div className="avatar">{initials(connection.mode === "browser" || profilePreviewActive ? currentCompanyUser?.displayName ?? auth.accountName : auth.accountName)}</div>
             <div className="user-card-details">
-              <strong>{connection.mode === "browser" ? currentCompanyUser?.displayName ?? auth.accountName : auth.accountName}</strong>
+              <strong>{connection.mode === "browser" || profilePreviewActive ? currentCompanyUser?.displayName ?? auth.accountName : auth.accountName}</strong>
               <span>
-                {connection.mode === "browser"
+                {profilePreviewActive
+                  ? `${currentCompanyUser?.role ?? "Demogebruiker"} · live testsessie`
+                  : connection.mode === "browser"
                   ? `${currentCompanyUser?.role ?? "Demogebruiker"} · lokale testsessie`
                   : auth.accountUsername ??
                   (connection.mode === "api"
@@ -2607,7 +2618,7 @@ function App() {
                 placeholder="Zoek op deze pagina..."
               />
             </div>
-            {page === "opportunities" && !profilePreviewActive && (
+            {page === "opportunities" && canPerform(currentCompanyUser?.role, "records.create") && (
               <button
                 className="primary"
                 disabled={connection.phase === "loading"}
@@ -2632,8 +2643,8 @@ function App() {
         />
 
         <section className="content" ref={contentRef}>
-          {canUseProfilePreview && <Suspense fallback={null}><ProfilePreviewBar value={profilePreviewRole} onChange={switchProfilePreview}/></Suspense>}
-          <div className={profilePreviewActive ? "profile-preview-readonly" : undefined}>
+          {canUseProfilePreview && <Suspense fallback={null}><ProfilePreviewBar users={profilePreviewUsers} value={profilePreviewUserId} administratorName={profilePreviewAdministrator?.displayName ?? "Administrator"} busy={profilePreviewSwitching} onChange={(userId) => { void switchProfilePreview(userId); }}/></Suspense>}
+          <div>
           {connection.mode === "browser" && currentCompanyUser && (
             <DemoUserSwitcher
               users={state.companyUsers}
@@ -2804,7 +2815,7 @@ function App() {
         </section>
       </main>
 
-      {!profilePreviewActive && opportunityFormOpen && (
+      {opportunityFormOpen && (
         <OpportunityForm
           organizations={presentationState.organizations}
           legalEntities={presentationState.legalEntities}
@@ -2817,7 +2828,7 @@ function App() {
           }}
         />
       )}
-      {!profilePreviewActive && editingOpportunityId && presentationState.opportunities.find(item => item.id === editingOpportunityId) && (
+      {editingOpportunityId && presentationState.opportunities.find(item => item.id === editingOpportunityId) && (
         <OpportunityForm
           opportunity={presentationState.opportunities.find(item => item.id === editingOpportunityId)!}
           organizations={presentationState.organizations}
@@ -2830,7 +2841,7 @@ function App() {
           }}
         />
       )}
-      {!profilePreviewActive && goNoGoOpportunityId && presentationState.opportunities.find(item => item.id === goNoGoOpportunityId) && (
+      {goNoGoOpportunityId && presentationState.opportunities.find(item => item.id === goNoGoOpportunityId) && (
         <GoNoGoDialog
           opportunity={presentationState.opportunities.find(item => item.id === goNoGoOpportunityId)!}
           onClose={() => setGoNoGoOpportunityId(undefined)}
