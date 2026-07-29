@@ -1,4 +1,4 @@
-import type { BoqItem, Calculation } from './domain'
+import type { BoqItem, Calculation } from './domain.js'
 
 // The project identity and high-level work packages follow the publicly
 // described Oosterweel Rechteroever scope. Quantities and prices below are
