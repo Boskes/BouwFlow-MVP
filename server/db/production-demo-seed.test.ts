@@ -32,17 +32,41 @@ describe('production demo seed', () => {
   it('vult de lege BouwFlow-tenant met de klasse 8-calculatie en een project', async () => {
     await expect(ensureProductionDemoData(pool, adminContext)).resolves.toBe(true)
 
-    const [calculations, chapters, items, projects] = await Promise.all([
+    const [calculations, chapters, items, projects, reports, costs, changes, forecasts, pipeline] = await Promise.all([
       pool.query<{ count: string }>('SELECT count(*)::text AS count FROM calculations WHERE tenant_id=$1', [BOUWFLOW_DEMO_TENANT_ID]),
       pool.query<{ count: string }>('SELECT count(*)::text AS count FROM boq_chapters WHERE tenant_id=$1', [BOUWFLOW_DEMO_TENANT_ID]),
       pool.query<{ count: string }>('SELECT count(*)::text AS count FROM boq_items WHERE tenant_id=$1', [BOUWFLOW_DEMO_TENANT_ID]),
       pool.query<{ count: string }>('SELECT count(*)::text AS count FROM projects WHERE tenant_id=$1', [BOUWFLOW_DEMO_TENANT_ID]),
+      pool.query<{ count: string }>('SELECT count(*)::text AS count FROM daily_reports WHERE tenant_id=$1', [BOUWFLOW_DEMO_TENANT_ID]),
+      pool.query<{ count: string }>('SELECT count(*)::text AS count FROM project_costs WHERE tenant_id=$1', [BOUWFLOW_DEMO_TENANT_ID]),
+      pool.query<{ count: string }>('SELECT count(*)::text AS count FROM change_orders WHERE tenant_id=$1', [BOUWFLOW_DEMO_TENANT_ID]),
+      pool.query<{ count: string }>('SELECT count(*)::text AS count FROM project_forecasts WHERE tenant_id=$1', [BOUWFLOW_DEMO_TENANT_ID]),
+      pool.query<{ count: string }>('SELECT count(*)::text AS count FROM opportunities WHERE tenant_id=$1', [BOUWFLOW_DEMO_TENANT_ID]),
     ])
 
     expect(calculations.rows[0].count).toBe('1')
     expect(chapters.rows[0].count).toBe('180')
     expect(items.rows[0].count).toBe('2000')
     expect(projects.rows[0].count).toBe('1')
+    expect(reports.rows[0].count).toBe('3')
+    expect(costs.rows[0].count).toBe('6')
+    expect(changes.rows[0].count).toBe('2')
+    expect(forecasts.rows[0].count).toBe('2')
+    expect(pipeline.rows[0].count).toBe('4')
+  }, 15_000)
+
+  it('blijft idempotent na een procesherstart en dupliceert de kerncalculatie niet', async () => {
+    await expect(ensureProductionDemoData(pool, adminContext)).resolves.toBe(true)
+    clearProductionDemoSeedCacheForTests()
+
+    await expect(ensureProductionDemoData(pool, adminContext)).resolves.toBe(false)
+
+    const [reports, calculations] = await Promise.all([
+      pool.query<{ count: string }>('SELECT count(*)::text AS count FROM daily_reports WHERE tenant_id=$1', [BOUWFLOW_DEMO_TENANT_ID]),
+      pool.query<{ count: string }>("SELECT count(*)::text AS count FROM calculations WHERE tenant_id=$1 AND number='CAL-DEMO-OWV-RO'", [BOUWFLOW_DEMO_TENANT_ID]),
+    ])
+    expect(reports.rows[0].count).toBe('3')
+    expect(calculations.rows[0].count).toBe('1')
   }, 15_000)
 
   it('slaat een tenant met bestaande bedrijfsdata volledig over', async () => {
