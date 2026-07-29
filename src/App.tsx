@@ -224,6 +224,7 @@ import {
   type WorkflowDefinitionInput,
 } from "./domain";
 import { canPerform, pageLabels, roleDefinition, roleDefinitions, workflowFor } from "./administration";
+import type { ProfilePreviewRole } from "./ProfilePreviewBar";
 import { useBouwFlowStore } from "./store";
 import { useAuth } from "./auth-context";
 import { pageForDossier, workspacePath, workspaceRouteFromLocation, writeWorkspaceRoute, type DossierType, type WorkspaceRoute } from "./routing";
@@ -757,6 +758,25 @@ function scopeStateByCompany(
       (!legalEntityId || item.legalEntityId === legalEntityId) &&
       (!branchId || item.branchId === branchId),
     ),
+  };
+}
+
+const ProfilePreviewBar = lazy(() => import("./ProfilePreviewBar"));
+
+function profilePreviewUser(state: BouwFlowState, role: ProfilePreviewRole): CompanyUser {
+  const project = state.projects[0];
+  const organization = state.organizations.find((item) => item.id === project?.organizationId);
+  return {
+    id: `preview:${role}`,
+    displayName: role === "Klant" ? organization?.contactName || "Opdrachtgever" : role,
+    email: role === "Klant" ? organization?.email || "klant@demo.local" : `${role.toLowerCase()}@demo.local`,
+    role,
+    status: "Actief",
+    allLegalEntities: role !== "Klant",
+    legalEntityIds: project?.legalEntityId ? [project.legalEntityId] : [],
+    allProjects: role !== "Klant",
+    projectIds: project ? [project.id] : [],
+    organizationId: role === "Klant" ? organization?.id : undefined,
   };
 }
 
@@ -2205,6 +2225,12 @@ function App() {
       : workspaceRouteFromLocation(window.location),
   );
   const page = route.page;
+  const [profilePreviewRole, setProfilePreviewRole] = useState<ProfilePreviewRole>();
+  const actualCompanyUser = state.companyUsers.find((item) => item.id === state.currentUserId);
+  const canUseProfilePreview = connection.mode === "api" && actualCompanyUser?.role === "Administrator";
+  const previewUser = useMemo(() => canUseProfilePreview && profilePreviewRole ? profilePreviewUser(state, profilePreviewRole) : undefined, [canUseProfilePreview, profilePreviewRole, state]);
+  const presentationState = useMemo(() => previewUser ? { ...state, currentUserId: previewUser.id, companyUsers: [...state.companyUsers, previewUser] } : state, [previewUser, state]);
+  const profilePreviewActive = Boolean(previewUser);
   const dossierPreferenceUser = state.currentUserId || auth.accountUsername || "local-user";
   const sidebarPreferenceStorageKey = `bouwflow-sidebar-v1:${dossierPreferenceUser}`;
   const navigationPreferenceStorageKey = `bouwflow-navigation-groups-v1:${dossierPreferenceUser}`;
@@ -2341,19 +2367,19 @@ function App() {
   useEffect(() => setQuery(""), [page]);
 
   const organizations = useMemo(
-    () => new Map(state.organizations.map((item) => [item.id, item])),
-    [state.organizations],
+    () => new Map(presentationState.organizations.map((item) => [item.id, item])),
+    [presentationState.organizations],
   );
   const scopedState = useMemo(
     () => {
-      const scoped = scopeStateByCompany(state, legalEntityFilter, branchFilter);
+      const scoped = scopeStateByCompany(presentationState, legalEntityFilter, branchFilter);
       return { ...scoped, projectClaims: scoped.projectClaims.map((item) => ({ ...item, title: item.title ?? item.description })) };
     },
-    [state, legalEntityFilter, branchFilter],
+    [presentationState, legalEntityFilter, branchFilter],
   );
-  const currentCompanyUser = state.companyUsers.find((item) => item.id === state.currentUserId);
+  const currentCompanyUser = presentationState.companyUsers.find((item) => item.id === presentationState.currentUserId);
   const visibleNav = nav.filter((item) => canAccessPage(currentCompanyUser?.role, item.id));
-  const pageAllowed = canAccessPage(currentCompanyUser?.role, page) || canExternalAccessDossier(state,currentCompanyUser,route.dossierType,route.dossierId);
+  const pageAllowed = canAccessPage(currentCompanyUser?.role, page) || canExternalAccessDossier(presentationState,currentCompanyUser,route.dossierType,route.dossierId);
   const roleHomePage: Page = currentCompanyUser?.role === "Klant" ? "client-portal" : currentCompanyUser?.role === "Onderaannemer" ? "subcontractor-portal" : currentCompanyUser?.role === "Leverancier" ? "supplier-portal" : "dashboard";
   const demoAdministrator = state.companyUsers.find((item) => item.role === "Administrator" && item.status !== "Geblokkeerd");
   const switchDemoSession = (userId: string) => {
@@ -2367,6 +2393,15 @@ function App() {
     const targetHome: Page = target.role === "Klant" ? "client-portal" : target.role === "Onderaannemer" ? "subcontractor-portal" : target.role === "Leverancier" ? "supplier-portal" : "dashboard";
     navigateRoute({ page: targetHome }, true);
   };
+  const switchProfilePreview = (role?: ProfilePreviewRole) => {
+    if (!canUseProfilePreview) return;
+    setProfilePreviewRole(role);
+    setLegalEntityFilter("");
+    setBranchFilter("");
+    setQuery("");
+    const targetHome: Page = role === "Klant" ? "client-portal" : "dashboard";
+    navigateRoute({ page: targetHome }, true);
+  };
   useEffect(() => { if (page === "dashboard" && roleHomePage !== "dashboard") setPage(roleHomePage); }, [page, roleHomePage, setPage]);
   const filteredOpportunities = scopedState.opportunities.filter((opportunity) => {
     const client = organizations.get(opportunity.organizationId)?.name ?? "";
@@ -2375,7 +2410,7 @@ function App() {
       .includes(query.toLowerCase());
   });
   const title = nav.find((item) => item.id === page)?.label ?? "Dashboard";
-  const availableBranches = state.companyBranches.filter(
+  const availableBranches = presentationState.companyBranches.filter(
     (branch) =>
       Boolean(legalEntityFilter) && branch.legalEntityId === legalEntityFilter,
   );
@@ -2383,7 +2418,7 @@ function App() {
   useEffect(() => {
     if (
       legalEntityFilter &&
-      !state.legalEntities.some((entity) => entity.id === legalEntityFilter)
+      !presentationState.legalEntities.some((entity) => entity.id === legalEntityFilter)
     )
       setLegalEntityFilter("");
     if (
@@ -2391,7 +2426,8 @@ function App() {
       !availableBranches.some((branch) => branch.id === branchFilter)
     )
       setBranchFilter("");
-  }, [availableBranches, branchFilter, legalEntityFilter, state.legalEntities]);
+  }, [availableBranches, branchFilter, legalEntityFilter, presentationState.legalEntities]);
+  const initialApiLoad = connection.mode === "api" && connection.phase === "loading" && !state.currentUserId;
 
   useEffect(() => {
     if (currentCompanyUser && !pageAllowed) navigateRoute({ page: "dashboard" }, true);
@@ -2550,7 +2586,7 @@ function App() {
           </div>
           <div className="top-actions">
             {companyScopeVisible && <CompanyScopeFilter
-              entities={state.legalEntities}
+              entities={presentationState.legalEntities}
               branches={availableBranches}
               legalEntityId={legalEntityFilter}
               branchId={branchFilter}
@@ -2569,7 +2605,7 @@ function App() {
                 placeholder="Zoek op deze pagina..."
               />
             </div>
-            {page === "opportunities" && (
+            {page === "opportunities" && !profilePreviewActive && (
               <button
                 className="primary"
                 disabled={connection.phase === "loading"}
@@ -2594,6 +2630,8 @@ function App() {
         />
 
         <section className="content" ref={contentRef}>
+          {canUseProfilePreview && <Suspense fallback={null}><ProfilePreviewBar value={profilePreviewRole} onChange={switchProfilePreview}/></Suspense>}
+          <div className={profilePreviewActive ? "profile-preview-readonly" : undefined}>
           {connection.mode === "browser" && currentCompanyUser && (
             <DemoUserSwitcher
               users={state.companyUsers}
@@ -2604,7 +2642,7 @@ function App() {
           )}
           {companyScopeVisible && <div className="mobile-company-scope">
             <CompanyScopeFilter
-              entities={state.legalEntities}
+              entities={presentationState.legalEntities}
               branches={availableBranches}
               legalEntityId={legalEntityFilter}
               branchId={branchFilter}
@@ -2621,10 +2659,10 @@ function App() {
               void actions.retry();
             }}
           />
-          {!pageAllowed ? <section className="panel dossier-not-found"><ShieldCheck size={34}/><h2>Geen toegang tot deze module</h2><p>Je rol bevat geen rechten voor deze werkruimte.</p><button className="primary" onClick={() => setPage(roleHomePage)}>Naar startscherm</button></section> : route.dossierType && route.dossierId ? (
+          {initialApiLoad ? <section className="panel dossier-not-found"><RotateCcw size={34}/><h2>Werkruimte voorbereiden</h2><p>De centrale gegevens en jouw rechten worden geladen. De pagina wordt daarna automatisch geopend.</p></section> : !pageAllowed ? <section className="panel dossier-not-found"><ShieldCheck size={34}/><h2>Geen toegang tot deze module</h2><p>Je rol bevat geen rechten voor deze werkruimte.</p><button className="primary" onClick={() => setPage(roleHomePage)}>Naar startscherm</button></section> : route.dossierType && route.dossierId ? (
             <DossierWorkspace
               route={route}
-              state={state}
+              state={presentationState}
               actions={actions}
               organizations={organizations}
               onBack={() => setPage(route.page)}
@@ -2654,7 +2692,7 @@ function App() {
             />
           )}
           {page === "dossiers" && <DossierRegister state={scopedState} preferences={dossierPreferences} onOpen={openDossier} onOpenNewTab={openDossierNewTab} onToggleFavorite={toggleDossierFavorite} />}
-          {page === "crm" && <CRM state={state} actions={actions} onOpenDossier={openDossier} />}
+          {page === "crm" && <CRM state={presentationState} actions={actions} onOpenDossier={openDossier} />}
           {page === "opportunities" && (
             <><Opportunities
               items={filteredOpportunities}
@@ -2681,7 +2719,7 @@ function App() {
             />
           )}
           {page === "cost-library" && (
-            <CostLibrary state={state} actions={actions} legalEntityId={legalEntityFilter} branchId={branchFilter} />
+            <CostLibrary state={presentationState} actions={actions} legalEntityId={legalEntityFilter} branchId={branchFilter} />
           )}
           {page === "projects" && (
             <Projects
@@ -2740,7 +2778,7 @@ function App() {
           )}
           {page === "qhse" && <Qhse state={scopedState} actions={actions} onOpenDossier={openDossier} />}
           {page === "subcontractors" && <SubcontractorsWorkspace state={scopedState} actions={actions} onOpenDossier={openDossier} />}
-          {page === "consortia" && <ConsortiaPage state={state} actions={actions} onOpenDossier={openDossier} />}
+          {page === "consortia" && <ConsortiaPage state={presentationState} actions={actions} onOpenDossier={openDossier} />}
           {page === "integrations" && <section className="panel feature-on-hold" data-preserved-component={IntegrationsPage.name}><Plug size={34}/><p className="eyebrow">Tijdelijk buiten scope</p><h2>ERP-koppelingen staan on hold</h2><p>De bestaande gatewaycode blijft behouden. Verdere ontwikkeling en productieacceptatie starten pas na de klasse-8-pilot.</p></section>}
           {page === "ai" && <AiAssistantPage state={scopedState} actions={actions} onOpenDossier={openDossier} />}
           {page === "closeout" && <ContractCloseoutPage state={scopedState} actions={actions} onOpenDossier={openDossier} />}
@@ -2748,26 +2786,27 @@ function App() {
           {page === "subcontractor-portal" && <SubcontractorPortalWorkspace state={scopedState} actions={actions} onOpenDossier={openDossier} />}
           {page === "supplier-portal" && <SupplierPortal state={scopedState} actions={actions} onOpenDossier={openDossier} />}
           {page === "company" && (
-            <CompanyStructure state={state} actions={actions} />
+            <CompanyStructure state={presentationState} actions={actions} />
           )}
           {page === "access" && (
-            <CompanyAccess state={state} actions={actions} />
+            <CompanyAccess state={presentationState} actions={actions} />
           )}
           {page === "entity-finance" && (
-            <EntityFinance state={state} actions={actions} onOpenDossier={openDossier} />
+            <EntityFinance state={presentationState} actions={actions} onOpenDossier={openDossier} />
           )}
           {page === "notification-settings" && (
-            <PeppolNotificationSettingsPage state={state} actions={actions} onOpenInvoice={openCashFlowInvoice} />
+            <PeppolNotificationSettingsPage state={presentationState} actions={actions} onOpenInvoice={openCashFlowInvoice} />
           )}
           </>}
+          </div>
         </section>
       </main>
 
-      {opportunityFormOpen && (
+      {!profilePreviewActive && opportunityFormOpen && (
         <OpportunityForm
-          organizations={state.organizations}
-          legalEntities={state.legalEntities}
-          branches={state.companyBranches}
+          organizations={presentationState.organizations}
+          legalEntities={presentationState.legalEntities}
+          branches={presentationState.companyBranches}
           onClose={() => setOpportunityFormOpen(false)}
           onSubmit={(input) => {
             void actions.addOpportunity({ ...input, stage: "Nieuw" });
@@ -2776,12 +2815,12 @@ function App() {
           }}
         />
       )}
-      {editingOpportunityId && state.opportunities.find(item => item.id === editingOpportunityId) && (
+      {!profilePreviewActive && editingOpportunityId && presentationState.opportunities.find(item => item.id === editingOpportunityId) && (
         <OpportunityForm
-          opportunity={state.opportunities.find(item => item.id === editingOpportunityId)!}
-          organizations={state.organizations}
-          legalEntities={state.legalEntities}
-          branches={state.companyBranches}
+          opportunity={presentationState.opportunities.find(item => item.id === editingOpportunityId)!}
+          organizations={presentationState.organizations}
+          legalEntities={presentationState.legalEntities}
+          branches={presentationState.companyBranches}
           onClose={() => setEditingOpportunityId(undefined)}
           onSubmit={(input) => {
             void actions.updateOpportunity(editingOpportunityId, input);
@@ -2789,9 +2828,9 @@ function App() {
           }}
         />
       )}
-      {goNoGoOpportunityId && state.opportunities.find(item => item.id === goNoGoOpportunityId) && (
+      {!profilePreviewActive && goNoGoOpportunityId && presentationState.opportunities.find(item => item.id === goNoGoOpportunityId) && (
         <GoNoGoDialog
-          opportunity={state.opportunities.find(item => item.id === goNoGoOpportunityId)!}
+          opportunity={presentationState.opportunities.find(item => item.id === goNoGoOpportunityId)!}
           onClose={() => setGoNoGoOpportunityId(undefined)}
           onSubmit={(input) => {
             void actions.assessOpportunity(goNoGoOpportunityId, input);
@@ -3545,6 +3584,9 @@ function TenderWorkspace({ state, actions, onOpenDossier }: { state: BouwFlowSta
   const [documents, setDocuments] = useState<string[]>([]);
   const [weights, setWeights] = useState({ price: 60, quality: 40 });
   const [approvedBy, setApprovedBy] = useState("");
+  useEffect(() => {
+    if (!opportunityId || !state.opportunities.some((item) => item.id === opportunityId)) setOpportunityId(state.opportunities[0]?.id ?? "");
+  }, [opportunityId, state.opportunities]);
   useEffect(() => { setConditions((current?.selectionConditions ?? []).join("\n")); setCompetitors((current?.competitors ?? []).join("\n")); setDocuments(current?.requiredDocumentIds ?? []); }, [current, opportunityId]);
   const projectDocuments = state.documents.filter((document) => !opportunity || (document.links ?? []).some((link) => link.type === "Opportuniteit" && link.recordId === opportunity.id) || document.projectId === state.projects.find((project) => project.sourceCalculationId === state.calculations.find((calculation) => calculation.opportunityId === opportunity.id)?.id)?.id);
   const save = () => {
