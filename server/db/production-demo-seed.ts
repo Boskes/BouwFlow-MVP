@@ -1,9 +1,13 @@
 import { createHash } from 'node:crypto'
 import type { Pool, PoolClient } from 'pg'
 import type { RequestContext } from '../context.js'
+import { AuthorizationError } from '../auth.js'
+import type { ObjectStorage } from '../storage.js'
 import { buildOosterweelClass8DemoCalculation } from '../../src/class8-demo-calculation.js'
+import { seedFullProductionDemo } from './production-demo-full-seed.js'
 
 export const BOUWFLOW_DEMO_TENANT_ID = '07ef58e4-80e9-412d-9eae-1402bd8688f9'
+export const BOUWFLOW_DEMO_EMAIL_DOMAIN = '@demo.aifestival.be'
 
 const DEMO_LEGAL_ENTITY_ID = '20000000-0000-4000-8200-000000000001'
 const DEMO_BRANCH_ID = '20000000-0000-4000-8200-000000000002'
@@ -15,6 +19,42 @@ const DEFAULT_COST_LIBRARY_VERSION_ID = '00000000-0000-4000-8000-000000000102'
 const DEMO_EXPANSION_REPORT_ID = '20000000-0000-4000-8000-000000000010'
 
 const initializedTenants = new Set<string>()
+
+interface DemoUserRow {
+  id: string
+  display_name: string
+  email: string
+  role: string
+  status: string
+}
+
+export async function applyProductionDemoUser(
+  pool: Pick<Pool, 'query'>,
+  context: RequestContext,
+  requestedUserId: string | undefined,
+) {
+  if (!requestedUserId) return false
+  if (context.tenantId !== BOUWFLOW_DEMO_TENANT_ID || !context.roles.includes('Administrator')) {
+    throw new AuthorizationError('Alleen een BouwFlow-demo-administrator kan een testsessie starten')
+  }
+  const result = await pool.query<DemoUserRow>(
+    `SELECT id,display_name,email,role,status
+       FROM users
+      WHERE tenant_id=$1 AND id=$2 AND lower(email) LIKE $3
+      LIMIT 1`,
+    [context.tenantId, requestedUserId, `%${BOUWFLOW_DEMO_EMAIL_DOMAIN}`],
+  )
+  const target = result.rows[0]
+  if (!target || target.status !== 'Actief' || target.role === 'Administrator') {
+    throw new AuthorizationError('Deze demogebruiker is niet beschikbaar voor een testsessie')
+  }
+  context.userId = target.id
+  context.displayName = target.display_name
+  context.email = target.email
+  context.roles = [target.role]
+  context.configuredAccess = true
+  return true
+}
 
 function deterministicUuid(scope: string, value: string) {
   const hex = createHash('sha256').update(`bouwflow:${scope}:${value}`).digest('hex').slice(0, 32).split('')
@@ -325,13 +365,19 @@ async function seedDemoProjectExpansion(client: PoolClient, tenantId: string) {
   return true
 }
 
-export async function ensureProductionDemoData(pool: Pool, context: RequestContext) {
+export async function ensureProductionDemoData(pool: Pool, context: RequestContext, storage?: ObjectStorage) {
   if (context.tenantId !== BOUWFLOW_DEMO_TENANT_ID || !context.roles.includes('Administrator')) return false
   if (initializedTenants.has(context.tenantId)) return false
 
   const client = await pool.connect()
   try {
     await client.query('BEGIN')
+    await client.query(
+      `INSERT INTO tenants (id,name)
+       VALUES ($1,'BouwFlow Demo')
+       ON CONFLICT (id) DO NOTHING`,
+      [context.tenantId],
+    )
     await client.query('SELECT id FROM tenants WHERE id=$1 FOR UPDATE', [context.tenantId])
     const existing = await client.query<{ count: string }>(`SELECT (
       (SELECT count(*) FROM opportunities WHERE tenant_id=$1) +
@@ -341,10 +387,11 @@ export async function ensureProductionDemoData(pool: Pool, context: RequestConte
     const isEmpty = Number(existing.rows[0]?.count ?? 0) === 0
     if (isEmpty) await seedEmptyTenant(client, context.tenantId)
     const expanded = await seedDemoProjectExpansion(client, context.tenantId)
-    if (isEmpty || expanded) await client.query('UPDATE tenants SET data_revision=data_revision+1 WHERE id=$1', [context.tenantId])
+    const fullEnvironment = await seedFullProductionDemo(client, context.tenantId, storage)
+    if (isEmpty || expanded || fullEnvironment) await client.query('UPDATE tenants SET data_revision=data_revision+1 WHERE id=$1', [context.tenantId])
     await client.query('COMMIT')
     initializedTenants.add(context.tenantId)
-    return isEmpty || expanded
+    return isEmpty || expanded || fullEnvironment
   } catch (error) {
     await client.query('ROLLBACK')
     throw error

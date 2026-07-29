@@ -7,7 +7,7 @@ import type { Pool } from 'pg'
 import { AuthenticationError, AuthorizationError, createAuthenticator, requireAllLegalEntities, requireRoles, type AuthMode } from './auth.js'
 import { BouwFlowRepository, RepositoryError } from './db/repository.js'
 import { ensureAuthenticatedIdentity, ensureExternalPortalIdentity, loadCompanyAccessScope } from './db/identity.js'
-import { ensureProductionDemoData } from './db/production-demo-seed.js'
+import { applyProductionDemoUser, ensureProductionDemoData } from './db/production-demo-seed.js'
 import { enforceCompanyScope } from './company-access.js'
 import { applyCostSchema, boqItemPatchSchema, boqItemSchema, bulkCostUpdateSchema, bulkPriceAdjustmentSchema, calculationPatchSchema, calculationScenarioPatchSchema, calculationScenarioSchema, calculationStructureSchema, calculationTemplateSchema, calculationVersionSchema, changeOrderApprovalSchema, changeOrderSchema, chapterSchema, commitmentSettlementSchema, companyBranchSchema, companyUserAccessSchema, companyUserProfileSchema, costLibraryItemPatchSchema, costLibraryItemSchema, costLibraryPatchSchema, costLibrarySchema, costLibraryVersionSchema, crmActivitySchema, dailyReportSchema, dailyReportSignSchema, documentApprovalSchema, documentDistributionSchema, documentMetadataSchema, documentRevisionSchema, documentUploadSchema, intercompanyChargeSchema, legalEntityFinancialSchema, legalEntitySchema, opportunityGoNoGoSchema, opportunitySchema, organizationBillingSchema, organizationRelationSchema, organizationSchema, paymentRegistrationSchema, peppolAcceptanceReleaseSchema, peppolNotificationSettingsSchema, peppolNotificationTestSchema, postCalculationFeedbackSchema, procurementRequestSchema, progressStatementApprovalSchema, progressStatementSchema, projectBaselineSchema, projectCompanyAssignmentSchema, projectCostSchema, projectDetailsSchema, projectForecastSchema, projectPlanningSchema, projectStartupSchema, purchaseDeviationApprovalSchema, purchaseInvoiceMatchSchema, purchaseReceiptSchema, qhseCertificateSchema, qhseFindingParams, qhseInspectionSchema, quoteApprovalSchema, quoteContentSchema, quoteLossSchema, quoteReminderSchema, quoteSendSchema, quoteSignatureSchema, salesInvoiceIssueSchema, salesInvoiceSchema, sitePhotoSchema, supplierFrameworkAgreementSchema, supplierQuoteSchema, supplierSchema, tenderDossierSchema, unitConversionSchema, unitPatchSchema, unitSchema, uuidParams, workflowCorrectionSchema, workflowDefinitionSchema } from './schemas.js'
 import { assetOperationalSchema, assetSchema, documentRecordLinkSchema, inventoryCountSchema, inventoryItemSchema, stockMovementSchema, warehouseSchema } from './schemas.js'
@@ -136,7 +136,7 @@ export async function buildApp({ pool, authMode = 'development', logger = false,
   const peppolStatusMonitor = new PeppolStatusMonitor(repository, peppolAccessPoint, pollInterval, pollInterval, app.log)
   const notificationDispatcher = notificationSender ? new PeppolNotificationDispatcher(repository, notificationSender, notificationInterval, app.log) : undefined
 
-  await app.register(cors, { origin: frontendOrigin, credentials: false, methods: ['GET', 'HEAD', 'POST', 'PATCH', 'PUT', 'DELETE', 'OPTIONS'], allowedHeaders: ['Authorization', 'Content-Type', 'X-Request-Id', 'Idempotency-Key', 'If-Match'], exposedHeaders: ['X-Request-Id', 'RateLimit-Limit', 'RateLimit-Remaining', 'RateLimit-Reset', 'ETag'] })
+  await app.register(cors, { origin: frontendOrigin, credentials: false, methods: ['GET', 'HEAD', 'POST', 'PATCH', 'PUT', 'DELETE', 'OPTIONS'], allowedHeaders: ['Authorization', 'Content-Type', 'X-Request-Id', 'Idempotency-Key', 'If-Match', 'X-BouwFlow-Demo-User'], exposedHeaders: ['X-Request-Id', 'RateLimit-Limit', 'RateLimit-Remaining', 'RateLimit-Reset', 'ETag'] })
   await app.register(multipart, { limits: { files: 1, fileSize: 10 * 1024 * 1024 } })
   app.addHook('onRequest', async request => { requestStarted.set(request, process.hrtime.bigint()) })
   app.addHook('onResponse', async (request, reply) => {
@@ -177,6 +177,8 @@ export async function buildApp({ pool, authMode = 'development', logger = false,
     await authenticate(request)
     if (authMode === 'entra') await ensureAuthenticatedIdentity(pool, request.context, process.env.TENANT_NAME)
     else if (request.context.roles.length > 0 && request.context.roles.every(role => ['Klant', 'Onderaannemer', 'Leverancier'].includes(role))) await ensureExternalPortalIdentity(pool, request.context, process.env.TENANT_NAME)
+    const requestedDemoUser = request.headers['x-bouwflow-demo-user']
+    await applyProductionDemoUser(pool, request.context, Array.isArray(requestedDemoUser) ? requestedDemoUser[0] : requestedDemoUser)
     await loadCompanyAccessScope(pool, request.context)
   })
   app.addHook('preHandler', async request => {
@@ -256,7 +258,7 @@ export async function buildApp({ pool, authMode = 'development', logger = false,
     return { accepted: true, deliveryId: delivery.id, status: delivery.status }
   })
   app.get('/api/bootstrap', async (request, reply) => {
-    await ensureProductionDemoData(pool, request.context)
+    await ensureProductionDemoData(pool, request.context, objectStorage)
     const revision = await pool.query<{ data_revision: string }>('SELECT data_revision::text FROM tenants WHERE id=$1', [request.context.tenantId])
     if (revision.rowCount) reply.header('ETag', `"${revision.rows[0].data_revision}"`)
     return repository.bootstrap(request.context)

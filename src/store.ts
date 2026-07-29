@@ -875,6 +875,11 @@ export function useBouwFlowStore(tokenProvider?: () => Promise<string | undefine
         ?{...current,currentUserId:userId}
         :current)
     },
+    async switchApiDemoUser(userId?: string) {
+      if (!api) return
+      api.setDemoUser(userId)
+      await refresh()
+    },
     async createWorkflowDefinition(input:WorkflowDefinitionInput){
       if(api){await remote(()=>api.createWorkflowDefinition(input),result=>setState(current=>({...current,workflowDefinitions:[...current.workflowDefinitions,result]})));return}
       const item={id:createId(),...input,updatedAt:todayIso()}

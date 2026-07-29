@@ -7,6 +7,8 @@ import { DEVELOPMENT_TENANT_ID, DEVELOPMENT_USER_ID } from './context.js'
 import { migrate } from './db/migration.js'
 import { BouwFlowRepository } from './db/repository.js'
 import { DEVELOPMENT_LEGAL_ENTITY_ID, DEVELOPMENT_PROJECT_MANAGER_ID, DEVELOPMENT_SERVICE_ENTITY_ID, seedDevelopmentData } from './db/seed.js'
+import { BOUWFLOW_DEMO_TENANT_ID } from './db/production-demo-seed.js'
+import { productionDemoUserIds } from './db/production-demo-full-seed.js'
 import { MemoryObjectStorage } from './storage.js'
 
 const organizationId = '10000000-0000-4000-8000-000000000001'
@@ -1345,10 +1347,132 @@ describe('BouwFlow API', () => {
   })
 
   it('laat de browser de verplichte idempotency-header via CORS versturen', async () => {
-    const response = await app.inject({ method: 'OPTIONS', url: '/api/organizations', headers: { origin: 'http://localhost:5173', 'access-control-request-method': 'POST', 'access-control-request-headers': 'authorization,content-type,idempotency-key' } })
+    const response = await app.inject({ method: 'OPTIONS', url: '/api/organizations', headers: { origin: 'http://localhost:5173', 'access-control-request-method': 'POST', 'access-control-request-headers': 'authorization,content-type,idempotency-key,x-bouwflow-demo-user' } })
     expect(response.statusCode).toBe(204)
     expect(response.headers['access-control-allow-origin']).toBe('http://localhost:5173')
     expect(response.headers['access-control-allow-headers']?.toLocaleLowerCase()).toContain('idempotency-key')
+    expect(response.headers['access-control-allow-headers']?.toLocaleLowerCase()).toContain('x-bouwflow-demo-user')
+  })
+
+  it('laat alleen de demo-administrator veilig als een gekoppelde demogebruiker werken', async () => {
+    const administratorHeaders = {
+      'x-tenant-id': BOUWFLOW_DEMO_TENANT_ID,
+      'x-user-id': '30000000-0000-4000-8000-000000000099',
+      'x-user-name': 'Demo Administrator',
+      'x-user-email': 'admin@bosis.be',
+      'x-user-roles': 'Administrator',
+    }
+    const seeded = await app.inject({ method: 'GET', url: '/api/bootstrap', headers: administratorHeaders })
+    expect(seeded.statusCode, seeded.body).toBe(200)
+    expect(seeded.json().companyUsers).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: productionDemoUserIds.tenderOwner, role: 'Tender manager' }),
+      expect.objectContaining({ id: productionDemoUserIds.client, role: 'Klant' }),
+    ]))
+
+    const tenderManager = await app.inject({
+      method: 'GET',
+      url: '/api/bootstrap',
+      headers: { ...administratorHeaders, 'x-bouwflow-demo-user': productionDemoUserIds.tenderOwner },
+    })
+    expect(tenderManager.statusCode, tenderManager.body).toBe(200)
+    expect(tenderManager.json()).toMatchObject({
+      currentUserId: productionDemoUserIds.tenderOwner,
+      companyUsers: [expect.objectContaining({ role: 'Tender manager', email: 'tessa.vermeulen@demo.aifestival.be' })],
+    })
+    expect(tenderManager.json().opportunities).toEqual(expect.arrayContaining([
+      expect.objectContaining({ tender: expect.objectContaining({ submissionPlan: expect.objectContaining({ ownerEmployeeId: expect.any(String) }) }) }),
+    ]))
+
+    const client = await app.inject({
+      method: 'GET',
+      url: '/api/bootstrap',
+      headers: { ...administratorHeaders, 'x-bouwflow-demo-user': productionDemoUserIds.client },
+    })
+    expect(client.statusCode, client.body).toBe(200)
+    expect(client.json()).toMatchObject({
+      currentUserId: productionDemoUserIds.client,
+      companyUsers: [expect.objectContaining({ role: 'Klant' })],
+      organizations: [expect.objectContaining({ name: 'Lantis' })],
+      projectCosts: [],
+      suppliers: [],
+    })
+
+    const subcontractor = await app.inject({
+      method: 'GET',
+      url: '/api/bootstrap',
+      headers: { ...administratorHeaders, 'x-bouwflow-demo-user': productionDemoUserIds.subcontractor },
+    })
+    expect(subcontractor.statusCode, subcontractor.body).toBe(200)
+    expect(subcontractor.json()).toMatchObject({
+      currentUserId: productionDemoUserIds.subcontractor,
+      companyUsers: [expect.objectContaining({ role: 'Onderaannemer' })],
+      subcontractors: [expect.objectContaining({ name: 'Delta Infra NV' })],
+      workTickets: [expect.objectContaining({ status: 'Ter ondertekening' })],
+      projectCosts: [],
+    })
+
+    const supplier = await app.inject({
+      method: 'GET',
+      url: '/api/bootstrap',
+      headers: { ...administratorHeaders, 'x-bouwflow-demo-user': productionDemoUserIds.supplier },
+    })
+    expect(supplier.statusCode, supplier.body).toBe(200)
+    expect(supplier.json()).toMatchObject({
+      currentUserId: productionDemoUserIds.supplier,
+      companyUsers: [expect.objectContaining({ role: 'Leverancier' })],
+      projects: [],
+    })
+    expect(supplier.json().suppliers).toEqual([
+      expect.objectContaining({ name: 'SteelWorks Belgium NV' }),
+    ])
+    expect(supplier.json().procurementRequests).toEqual(expect.arrayContaining([
+      expect.objectContaining({ status: 'Vergelijken' }),
+      expect.objectContaining({ status: 'Besteld' }),
+    ]))
+
+    const siteManagerHeaders = { ...administratorHeaders, 'x-bouwflow-demo-user': productionDemoUserIds.siteManager }
+    const siteManager = await app.inject({ method: 'GET', url: '/api/bootstrap', headers: siteManagerHeaders })
+    expect(siteManager.statusCode, siteManager.body).toBe(200)
+    expect(siteManager.json()).toMatchObject({
+      currentUserId: productionDemoUserIds.siteManager,
+      companyUsers: [expect.objectContaining({ role: 'Werfleider' })],
+      projects: [expect.objectContaining({ number: 'PRJ-OWV-RO-DEMO' })],
+    })
+    const siteProject = siteManager.json().projects[0]
+    const activeSiteMutation = await app.inject({
+      method: 'POST',
+      url: `/api/projects/${siteProject.id}/daily-reports`,
+      headers: siteManagerHeaders,
+      payload: {
+        date: '2026-09-21',
+        workPackageId: siteProject.workPackages[0].id,
+        weather: 'Droog',
+        temperature: 18,
+        activities: 'Actieve testsessie voor het werfportaal.',
+        laborEntries: [],
+        subcontractors: ['Delta Infra NV'],
+        materials: [],
+        machines: [],
+        deliveries: '',
+        delays: '',
+        problems: '',
+        visitors: '',
+        notes: 'Deze mutatie bewijst dat bekijken als gebruiker niet alleen-lezen is.',
+      },
+    })
+    expect(activeSiteMutation.statusCode, activeSiteMutation.body).toBe(201)
+    expect(activeSiteMutation.json()).toMatchObject({ projectId: siteProject.id, status: 'Concept', weather: 'Droog' })
+
+    const forbidden = await app.inject({
+      method: 'GET',
+      url: '/api/bootstrap',
+      headers: {
+        ...administratorHeaders,
+        'x-user-roles': 'Calculator',
+        'x-bouwflow-demo-user': productionDemoUserIds.client,
+      },
+    })
+    expect(forbidden.statusCode).toBe(403)
   })
 
   it('controleert database en object storage in de readinesscheck', async () => {

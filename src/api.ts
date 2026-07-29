@@ -15,6 +15,7 @@ export class BouwFlowApi {
   private readonly fetcher: FetchLike
   private readonly tokenProvider?: TokenProvider
   private revisionEtag?: string
+  private demoUserId?: string
 
   constructor(baseUrl: string, fetcher: FetchLike = fetch, tokenProvider?: TokenProvider) {
     this.baseUrl = baseUrl.replace(/\/$/, '')
@@ -36,15 +37,20 @@ export class BouwFlowApi {
       const tenant = typeof claims.tid === 'string' ? claims.tid : ''
       const user = typeof claims.oid === 'string' ? claims.oid : typeof claims.sub === 'string' ? claims.sub : ''
       if (!tenant || !user) throw new Error('Tenant- of gebruikersclaim ontbreekt')
-      return `${this.baseUrl}|${tenant}|${user}`
+      return `${this.baseUrl}|${tenant}|${user}${this.demoUserId ? `|demo:${this.demoUserId}` : ''}`
     } catch {
       const digest = await globalThis.crypto.subtle.digest('SHA-256', new TextEncoder().encode(token))
-      return `${this.baseUrl}|token-${Array.from(new Uint8Array(digest)).map(value => value.toString(16).padStart(2, '0')).join('')}`
+      return `${this.baseUrl}|token-${Array.from(new Uint8Array(digest)).map(value => value.toString(16).padStart(2, '0')).join('')}${this.demoUserId ? `|demo:${this.demoUserId}` : ''}`
     }
   }
 
   bootstrap() {
     return this.request<BouwFlowState>('/api/bootstrap')
+  }
+
+  setDemoUser(userId?: string) {
+    this.demoUserId = userId
+    this.revisionEtag = undefined
   }
 
   auditTrail(entityType: string, entityId: string) {
@@ -467,6 +473,7 @@ export class BouwFlowApi {
       ...(idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : {}),
       ...(mutating && this.revisionEtag ? { 'If-Match': this.revisionEtag } : {}),
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(this.demoUserId ? { 'X-BouwFlow-Demo-User': this.demoUserId } : {}),
       ...init.headers,
     }
     const url = `${this.baseUrl}${path}`
