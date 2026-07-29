@@ -97,6 +97,7 @@ import {
   organizationAddresses,
   planningConflicts,
   planningActivityDependencies,
+  planningTimelineRange,
   projectControlMetrics,
   qhseAlerts,
   qhseCertificateStatus,
@@ -6838,10 +6839,11 @@ function ProjectPlanningDialog({
   ].filter(group=>group.activities.length);
   const visibleActivities = groupedActivities.flatMap(group=>collapsedWorkPackages.has(group.id)?[]:group.activities);
   const allVisibleSelected = visibleActivities.length > 0 && visibleActivities.every(activity=>selectedActivityIds.has(activity.id));
-  const starts = activities.map((activity) => activity.startDate).sort();
-  const ends = activities.map((activity) => activity.endDate).sort();
-  const timelineStart = starts[0];
-  const timelineEnd = ends.at(-1);
+  const { startDate: timelineStart, endDate: timelineEnd } = planningTimelineRange(
+    activities,
+    project.handover.plannedStart,
+    project.handover.plannedEnd,
+  );
   const dayDifference = (from: string, to: string) =>
     Math.round(
       (new Date(`${to}T00:00:00Z`).getTime() -
@@ -6849,9 +6851,7 @@ function ProjectPlanningDialog({
         86_400_000,
     );
   const timelineDays =
-    timelineStart && timelineEnd
-      ? Math.max(1, dayDifference(timelineStart, timelineEnd) + 1)
-      : 1;
+    Math.max(1, dayDifference(timelineStart, timelineEnd) + 1);
   const selectedActivity = activities.find(item => item.id === selectedActivityId) ?? activities[0];
   const selectedActivityBaseline: { startDate?: string; endDate?: string } = selectedActivity ? baselineDates(selectedActivity) : {};
   const selectedActivityVariance = selectedActivity && selectedActivityBaseline.endDate

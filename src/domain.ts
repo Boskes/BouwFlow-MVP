@@ -2459,6 +2459,20 @@ const planningAddDays = (date: string, days: number) => {
   return value.toISOString().slice(0, 10)
 }
 
+export const planningTimelineRange = (
+  activities: Array<Pick<PlanningActivity, 'startDate' | 'endDate'>>,
+  plannedStart?: string,
+  plannedEnd?: string,
+  fallbackDate = new Date().toISOString().slice(0, 10),
+) => {
+  const validDate = (value?: string) => Boolean(value && !Number.isNaN(new Date(`${value}T00:00:00Z`).getTime()))
+  const starts = activities.map(activity => activity.startDate).filter(validDate).sort()
+  const ends = activities.map(activity => activity.endDate).filter(validDate).sort()
+  const startDate = starts[0] ?? (validDate(plannedStart) ? plannedStart! : fallbackDate)
+  const candidateEnd = ends.at(-1) ?? (validDate(plannedEnd) ? plannedEnd! : startDate)
+  return { startDate, endDate: candidateEnd < startDate ? startDate : candidateEnd }
+}
+
 export const planningActivityDependencies = (activity: PlanningActivity): PlanningDependency[] => {
   const source = activity.dependencies?.length
     ? activity.dependencies
