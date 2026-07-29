@@ -267,7 +267,7 @@ async function seedCommercialAndFinancialFlow(client: PoolClient, tenantId: stri
   await client.query(
     `INSERT INTO quotes (tenant_id,id,number,calculation_id,version,total,content,snapshot,workflow,created_at)
      VALUES ($1,$2,'OFF-OWV-2026-01',$3,1,875000000,$4,$5,$6,'2026-08-25T09:00:00.000Z')
-     ON CONFLICT (tenant_id,id) DO NOTHING`,
+     ON CONFLICT DO NOTHING`,
     [
       tenantId,
       id('quote', 'oosterweel-v1'),

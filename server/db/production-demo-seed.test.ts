@@ -96,6 +96,37 @@ describe('production demo seed', () => {
     expect(calculations.rows[0].count).toBe('1')
   }, 15_000)
 
+  it('behoudt een bestaande offerteversie en vult de overige demo-omgeving verder aan', async () => {
+    await expect(ensureProductionDemoData(pool, adminContext)).resolves.toBe(true)
+    await pool.query(
+      `UPDATE quotes
+          SET id='30000000-0000-4000-8000-000000000088'
+        WHERE tenant_id=$1 AND calculation_id='20000000-0000-4000-8000-000000000003' AND version=1`,
+      [BOUWFLOW_DEMO_TENANT_ID],
+    )
+    await pool.query(
+      "DELETE FROM users WHERE tenant_id=$1 AND email='tessa.vermeulen@demo.aifestival.be'",
+      [BOUWFLOW_DEMO_TENANT_ID],
+    )
+    clearProductionDemoSeedCacheForTests()
+
+    await expect(ensureProductionDemoData(pool, adminContext)).resolves.toBe(true)
+
+    const [quotes, users] = await Promise.all([
+      pool.query<{ id: string }>(
+        `SELECT id FROM quotes
+          WHERE tenant_id=$1 AND calculation_id='20000000-0000-4000-8000-000000000003' AND version=1`,
+        [BOUWFLOW_DEMO_TENANT_ID],
+      ),
+      pool.query<{ count: string }>(
+        "SELECT count(*)::text AS count FROM users WHERE tenant_id=$1 AND email LIKE '%@demo.aifestival.be'",
+        [BOUWFLOW_DEMO_TENANT_ID],
+      ),
+    ])
+    expect(quotes.rows).toEqual([{ id: '30000000-0000-4000-8000-000000000088' }])
+    expect(users.rows[0].count).toBe('10')
+  }, 15_000)
+
   it('slaat een tenant met bestaande bedrijfsdata volledig over', async () => {
     await pool.query(`INSERT INTO organizations
       (tenant_id,id,name,type,contact_name,email)
