@@ -91,6 +91,7 @@ import {
   bulkBoqPriceAdjustmentPreview,
   boqItemQuantity,
   grossMargin,
+  normalizeTenderDossier,
   postCalculationAnalysis,
   peppolOperations,
   organizationAddress,
@@ -1142,7 +1143,7 @@ function TenderSubmissionPlanDialog({ opportunity, employees, actions, onClose }
   actions: ReturnType<typeof useBouwFlowStore>["actions"];
   onClose: () => void;
 }) {
-  const tender = opportunity.tender;
+  const tender = opportunity.tender ? normalizeTenderDossier(opportunity.tender) : undefined;
   const initial = tender?.submissionPlan;
   const [draft, setDraft] = useState<TenderSubmissionPlan>(() => structuredClone(initial ?? {
     reminderDays: [30, 14, 7, 2, 1], status: "Niet gestart", checklist: defaultTenderSubmissionChecklist(), notes: "", updatedAt: new Date().toISOString(),
@@ -3576,7 +3577,7 @@ function Opportunities({
 function TenderWorkspace({ state, actions, onOpenDossier }: { state: BouwFlowState; actions: ReturnType<typeof useBouwFlowStore>["actions"]; onOpenDossier: (type: DossierType, id: string) => void }) {
   const [opportunityId, setOpportunityId] = useState(state.opportunities[0]?.id ?? "");
   const opportunity = state.opportunities.find((item) => item.id === opportunityId);
-  const current = opportunity?.tender;
+  const current = opportunity?.tender ? normalizeTenderDossier(opportunity.tender) : undefined;
   const [conditions, setConditions] = useState("");
   const [competitors, setCompetitors] = useState("");
   const [question, setQuestion] = useState("");
@@ -3598,7 +3599,7 @@ function TenderWorkspace({ state, actions, onOpenDossier }: { state: BouwFlowSta
       submissionDeadline: current?.submissionDeadline ?? `${opportunity.deadline}T16:00:00.000Z`, executionPeriod: current?.executionPeriod ?? "Volgens bestek",
       recognitionClass: current?.recognitionClass ?? opportunity.recognition.split(" ")[0] ?? "", recognitionCategory: current?.recognitionCategory ?? opportunity.recognition.split(" ").slice(1).join(" "),
       selectionConditions: conditions.split("\n").map((item) => item.trim()).filter(Boolean),
-      awardCriteria: [{ id: current?.awardCriteria[0]?.id ?? createId(), criterion: "Prijs", weightPct: weights.price }, { id: current?.awardCriteria[1]?.id ?? createId(), criterion: "Kwaliteit en uitvoering", weightPct: weights.quality }],
+      awardCriteria: [{ id: current?.awardCriteria?.[0]?.id ?? createId(), criterion: "Prijs", weightPct: weights.price }, { id: current?.awardCriteria?.[1]?.id ?? createId(), criterion: "Kwaliteit en uitvoering", weightPct: weights.quality }],
       requiredDocumentIds: documents,
       questions: [...(current?.questions ?? []), ...(question.trim() ? [{ id: createId(), question: question.trim(), askedOn: now.slice(0, 10), status: "Open" as const }] : [])],
       siteVisits: [...(current?.siteVisits ?? []), ...(visitAt && visitLocation ? [{ id: createId(), scheduledAt: new Date(visitAt).toISOString(), location: visitLocation, mandatory: true, attendees: [], notes: "" }] : [])],
