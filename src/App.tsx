@@ -78,6 +78,8 @@ import BelgianAddressAutocomplete from "./BelgianAddressAutocomplete";
 
 const FormulaBuilderDialog = lazy(() => import('./FormulaBuilderDialog'))
 const BoqItemAdvancedDialog = lazy(() => import('./FormulaBuilderDialog').then(module => ({ default: module.BoqItemAdvancedDialog })))
+const BimIfcViewer = lazy(() => import('./BimIfcViewer'))
+import type { IfcViewerCommand, IfcViewerElement } from "./BimIfcViewer";
 import {
   autoSchedulePlanningActivities,
   class8CalculationTemplates,
@@ -3714,6 +3716,7 @@ function Calculations({
   const [importOpen, setImportOpen] = useState(false);
   const [templateOpen, setTemplateOpen] = useState(false);
   const [quoteOpen, setQuoteOpen] = useState(false);
+  const [bimOpen, setBimOpen] = useState(false);
   const [previewQuote, setPreviewQuote] = useState<Quote>();
   const [boqClipboard,setBoqClipboard]=useState<{sourceCalculationId:string;items:BoqItem[]} >({sourceCalculationId:'',items:[]});
   const calculation =
@@ -3909,6 +3912,7 @@ function Calculations({
             </div>
             <div className="calc-toolbar">
               <Badge text={calculation.status} />
+              <button className="secondary bim-launch-button" onClick={() => setBimOpen(true)}><Boxes size={16}/>BIM-calculatie</button>
               <button className="secondary" onClick={() => setTemplateOpen(true)}><BookOpen size={16}/>Klasse-8-sjabloon</button>
               <button
                 className="secondary"
@@ -4134,6 +4138,17 @@ function Calculations({
           onClose={() => setVersionOpen(false)}
         />
       )}
+      {bimOpen && (
+        <BimCalculationWorkspace
+          calculation={calculation}
+          actions={actions}
+          onClose={() => setBimOpen(false)}
+          onAdded={(count) => {
+            setTransferNotice(`${count} BIM-post${count === 1 ? "" : "en"} gekoppeld aan de calculatie.`);
+            setLastTransferItemIds([]);
+          }}
+        />
+      )}
       {importOpen && (
         <ImportDialog
           calculation={calculation}
@@ -4162,6 +4177,209 @@ function Calculations({
       {compareOpen && compareSourceId && <CalculationCompareDialog target={calculation} source={state.calculations.find(item => item.id === compareSourceId)} onClose={() => setCompareOpen(false)} onTransfer={(payload, targetChapterId) => { setCompareOpen(false); requestTransfer(payload, targetChapterId); }}/>}
     </div>
   );
+}
+
+type BimElementCategory = "Wanden" | "Vloeren" | "Kolommen" | "Balken" | "Ramen" | "Deuren" | "Daken" | "Trappen" | "Installaties" | "Overig";
+
+type BimModelElement = {
+  id: string;
+  ifcType: string;
+  label: string;
+  category: BimElementCategory;
+  storey: string;
+  quantity: number;
+  unit: "m²" | "m³" | "st";
+  unitCost: number;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  shape: "plate" | "wall" | "column" | "window" | "door" | "roof";
+  warning?: string;
+  globalId?: string;
+  quantitySource?: string;
+};
+
+const bimDemoElements: BimModelElement[] = [
+  { id:"vloer-gv",ifcType:"IfcSlab",label:"Vloerplaat GV",category:"Vloeren",storey:"Gelijkvloers",quantity:438,unit:"m²",unitCost:94,x:13,y:75,width:69,height:11,shape:"plate" },
+  { id:"vloer-v1",ifcType:"IfcSlab",label:"Vloerplaat V1",category:"Vloeren",storey:"Verdieping 1",quantity:421,unit:"m²",unitCost:94,x:18,y:57,width:62,height:10,shape:"plate" },
+  { id:"vloer-v2",ifcType:"IfcSlab",label:"Vloerplaat V2",category:"Vloeren",storey:"Verdieping 2",quantity:397,unit:"m²",unitCost:94,x:23,y:39,width:55,height:9,shape:"plate",warning:"Dikte ontbreekt; modelwaarde 200 mm gebruikt." },
+  { id:"wand-gv-a",ifcType:"IfcWall",label:"Gevelwand noord GV",category:"Wanden",storey:"Gelijkvloers",quantity:116,unit:"m²",unitCost:178,x:20,y:64,width:58,height:13,shape:"wall" },
+  { id:"wand-gv-b",ifcType:"IfcWall",label:"Kernwand GV",category:"Wanden",storey:"Gelijkvloers",quantity:73,unit:"m²",unitCost:149,x:49,y:62,width:8,height:17,shape:"wall" },
+  { id:"wand-v1-a",ifcType:"IfcWall",label:"Gevelwand noord V1",category:"Wanden",storey:"Verdieping 1",quantity:109,unit:"m²",unitCost:178,x:24,y:47,width:53,height:12,shape:"wall" },
+  { id:"wand-v1-b",ifcType:"IfcWall",label:"Kernwand V1",category:"Wanden",storey:"Verdieping 1",quantity:68,unit:"m²",unitCost:149,x:49,y:44,width:8,height:16,shape:"wall" },
+  { id:"wand-v2-a",ifcType:"IfcWall",label:"Gevelwand noord V2",category:"Wanden",storey:"Verdieping 2",quantity:97,unit:"m²",unitCost:178,x:28,y:29,width:47,height:12,shape:"wall" },
+  { id:"kolom-01",ifcType:"IfcColumn",label:"Kolom C01",category:"Kolommen",storey:"Gelijkvloers",quantity:5.8,unit:"m³",unitCost:890,x:24,y:48,width:4,height:31,shape:"column" },
+  { id:"kolom-02",ifcType:"IfcColumn",label:"Kolom C02",category:"Kolommen",storey:"Gelijkvloers",quantity:5.8,unit:"m³",unitCost:890,x:39,y:47,width:4,height:32,shape:"column" },
+  { id:"kolom-03",ifcType:"IfcColumn",label:"Kolom C03",category:"Kolommen",storey:"Gelijkvloers",quantity:5.8,unit:"m³",unitCost:890,x:66,y:45,width:4,height:33,shape:"column" },
+  { id:"raam-v1-01",ifcType:"IfcWindow",label:"Raamstrook R1.01",category:"Ramen",storey:"Verdieping 1",quantity:8,unit:"st",unitCost:1280,x:28,y:50,width:18,height:6,shape:"window" },
+  { id:"raam-v1-02",ifcType:"IfcWindow",label:"Raamstrook R1.02",category:"Ramen",storey:"Verdieping 1",quantity:8,unit:"st",unitCost:1280,x:57,y:49,width:17,height:6,shape:"window" },
+  { id:"raam-v2-01",ifcType:"IfcWindow",label:"Raamstrook R2.01",category:"Ramen",storey:"Verdieping 2",quantity:7,unit:"st",unitCost:1280,x:32,y:32,width:15,height:6,shape:"window" },
+  { id:"raam-v2-02",ifcType:"IfcWindow",label:"Raamstrook R2.02",category:"Ramen",storey:"Verdieping 2",quantity:7,unit:"st",unitCost:1280,x:55,y:31,width:16,height:6,shape:"window" },
+  { id:"deur-gv-01",ifcType:"IfcDoor",label:"Buitendeur D0.01",category:"Deuren",storey:"Gelijkvloers",quantity:1,unit:"st",unitCost:2460,x:29,y:67,width:8,height:10,shape:"door" },
+  { id:"deur-gv-02",ifcType:"IfcDoor",label:"Buitendeur D0.02",category:"Deuren",storey:"Gelijkvloers",quantity:1,unit:"st",unitCost:2460,x:69,y:66,width:7,height:10,shape:"door" },
+  { id:"dak-01",ifcType:"IfcRoof",label:"Warm dak hoofdvolume",category:"Daken",storey:"Dak",quantity:416,unit:"m²",unitCost:132,x:25,y:20,width:52,height:12,shape:"roof" },
+];
+
+const bimCategories = ["Wanden","Vloeren","Kolommen","Balken","Ramen","Deuren","Daken","Trappen","Installaties","Overig"] as BimElementCategory[];
+const bimCategoryCode: Record<BimElementCategory,string> = { Wanden:"21.10", Vloeren:"22.10", Kolommen:"23.10", Balken:"23.20", Ramen:"31.10", Deuren:"32.10", Daken:"27.10", Trappen:"24.10", Installaties:"60.10", Overig:"90.10" };
+const bimUnitCosts: Record<BimElementCategory,number> = { Wanden:178,Vloeren:94,Kolommen:890,Balken:1120,Ramen:1280,Deuren:2460,Daken:132,Trappen:4850,Installaties:650,Overig:125 };
+
+function BimCalculationWorkspace({ calculation, actions, onClose, onAdded }: { calculation: Calculation; actions: ReturnType<typeof useBouwFlowStore>["actions"]; onClose: () => void; onAdded: (count:number) => void }) {
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [selectedIds,setSelectedIds] = useState<Set<string>>(new Set(["wand-v1-a","raam-v1-01","raam-v1-02"]));
+  const [categoryFilter,setCategoryFilter] = useState<BimElementCategory|"Alle">("Alle");
+  const [storeyFilter,setStoreyFilter] = useState<BimModelElement["storey"]|"Alle">("Alle");
+  const [ifcFile,setIfcFile] = useState<File>();
+  const [ifcElements,setIfcElements] = useState<IfcViewerElement[]>([]);
+  const [ifcProgress,setIfcProgress] = useState(0);
+  const [viewerCommand,setViewerCommand] = useState<IfcViewerCommand>();
+  const [query,setQuery] = useState("");
+  const [modelName,setModelName] = useState("Kantoor Noord.ifc");
+  const [modelFormat,setModelFormat] = useState("IFC4 · demo-model");
+  const [importCount,setImportCount] = useState(1842);
+  const [isImporting,setIsImporting] = useState(false);
+  const [isAdding,setIsAdding] = useState(false);
+  const [rotation,setRotation] = useState(0);
+  const [notice,setNotice] = useState("Selectie in model en calculatie is live gekoppeld.");
+  const activeElements = useMemo<BimModelElement[]>(() => ifcElements.length ? ifcElements.map(element => {
+    const category = bimCategories.includes(element.category as BimElementCategory) ? element.category as BimElementCategory : "Overig";
+    return { id:String(element.expressId),ifcType:element.typeName,label:element.name,category,storey:element.storey,quantity:element.quantity,unit:element.unit,unitCost:bimUnitCosts[category],x:0,y:0,width:0,height:0,shape:"wall",warning:element.warning,globalId:element.globalId,quantitySource:element.quantitySource };
+  }) : bimDemoElements,[ifcElements]);
+  const availableStoreys = useMemo(()=>[...new Set(activeElements.map(element=>element.storey))].sort(),[activeElements]);
+  const visibleElements = activeElements.filter(element => (categoryFilter === "Alle" || element.category === categoryFilter) && (storeyFilter === "Alle" || element.storey === storeyFilter) && `${element.label} ${element.ifcType}`.toLocaleLowerCase().includes(query.toLocaleLowerCase()));
+  const selectedElements = activeElements.filter(element => selectedIds.has(element.id));
+  const groupedSelection = bimCategories.map(category => {
+    const elements = selectedElements.filter(element => element.category === category);
+    return elements.length ? { category, elements, quantity: elements.reduce((sum,element)=>sum+element.quantity,0), unit: elements[0].unit, unitCost: elements[0].unitCost } : undefined;
+  }).filter(Boolean) as { category:BimElementCategory; elements:BimModelElement[]; quantity:number; unit:BimModelElement["unit"]; unitCost:number }[];
+  const selectionTotal = groupedSelection.reduce((sum,group)=>sum+group.quantity*group.unitCost,0);
+  const selectGroup = (elements:BimModelElement[]) => {
+    setSelectedIds(new Set(elements.map(element=>element.id)));
+    setNotice(`${elements.length} objecten geselecteerd en doorgerekend.`);
+  };
+  const toggleElement = (element:BimModelElement, additive:boolean) => {
+    setSelectedIds(current => {
+      const next = additive ? new Set(current) : new Set<string>();
+      if (current.has(element.id) && additive) next.delete(element.id); else next.add(element.id);
+      return next;
+    });
+    setNotice(`${element.ifcType} · ${element.label}`);
+  };
+  const importModel = (file?:File) => {
+    if (!file) return;
+    setIsImporting(true);
+    setIfcProgress(1);
+    setIfcElements([]);
+    setIfcFile(file);
+    setModelName(file.name);
+    setModelFormat("WebIFC · geometrie wordt verwerkt");
+    setImportCount(0);
+    setSelectedIds(new Set());
+    setCategoryFilter("Alle");
+    setStoreyFilter("Alle");
+    setNotice("WebIFC initialiseert de geometrie-engine…");
+  };
+  const addToCalculation = async () => {
+    if (!groupedSelection.length) return;
+    setIsAdding(true);
+    const existingCodes = new Set(calculation.items.map(item=>item.code));
+    let created = 0;
+    for (const group of groupedSelection) {
+      let code = `${bimCategoryCode[group.category]}-BIM`;
+      let sequence = 2;
+      while (existingCodes.has(code)) code = `${bimCategoryCode[group.category]}-BIM.${sequence++}`;
+      existingCodes.add(code);
+      const item = await actions.addBoqItem(calculation.id, {
+        chapterId: null,
+        code,
+        description: `${group.category} uit BIM · ${modelName}`,
+        quantity: Number(group.quantity.toFixed(2)),
+        unit: group.unit,
+        labor: Number((group.unitCost*.28).toFixed(2)),
+        material: Number((group.unitCost*.72).toFixed(2)),
+        equipment: 0,
+        subcontracting: 0,
+        postType: "Samengestelde post",
+        quantityType: "Vermoedelijk",
+        wastePct: 0,
+        itemRiskPct: group.elements.some(element=>element.warning) ? 3 : 0,
+        markupPct: 0,
+        notes: `BIM-bron: ${modelName} · GUID/ExpressID: ${group.elements.map(element=>element.globalId || element.id).join(", ")}`,
+      });
+      if (item) created += 1;
+    }
+    setIsAdding(false);
+    setNotice(`${created} gegroepeerde BIM-posten toegevoegd aan ${calculation.number}.`);
+    onAdded(created);
+  };
+  return <div className="bim-workspace-backdrop">
+    <section className="bim-workspace" aria-label="BIM-calculatiewerkruimte">
+      <header className="bim-workspace-header">
+        <div className="bim-brand-mark"><Building2 size={23}/></div>
+        <div><p className="eyebrow">5D BIM-calculatie</p><h2>{modelName}</h2><span>{modelFormat} · {number(importCount)} objecten · gekoppeld aan {calculation.number}</span></div>
+        <div className="bim-header-actions">
+          <input ref={fileInputRef} type="file" hidden accept=".ifc" onChange={event=>void importModel(event.target.files?.[0])}/>
+          <button className="secondary" disabled={isImporting} onClick={()=>fileInputRef.current?.click()}><Upload size={15}/>{isImporting?`${ifcProgress}% verwerken`:(ifcFile?"Ander IFC-model":"IFC-model importeren")}</button>
+          <button className="icon-button" aria-label="BIM-werkruimte sluiten" onClick={onClose}><X size={20}/></button>
+        </div>
+      </header>
+      <div className="bim-commandbar">
+        <div className="bim-selection-tools"><button className="active"><Search size={14}/>Object</button><button onClick={()=>selectGroup(visibleElements)}><Maximize2 size={14}/>Zichtbare selectie</button><button onClick={()=>setSelectedIds(new Set())}><X size={14}/>Selectie wissen</button></div>
+        <label><SlidersHorizontal size={14}/><select value={storeyFilter} onChange={event=>setStoreyFilter(event.target.value)}><option>Alle</option>{availableStoreys.map(storey=><option key={storey}>{storey}</option>)}</select></label>
+        <label className="bim-search"><Search size={14}/><input value={query} onChange={event=>setQuery(event.target.value)} placeholder="Zoek object of IFC-type"/></label>
+        <span className="bim-live-state"><i></i>{notice}</span>
+      </div>
+      <div className="bim-workspace-grid">
+        <aside className="bim-layers-panel">
+          <div className="bim-panel-title"><div><p className="eyebrow">Modelstructuur</p><strong>Lagen & objecten</strong></div><Boxes size={17}/></div>
+          <button className={`bim-layer-row ${categoryFilter === "Alle"?"active":""}`} onClick={()=>setCategoryFilter("Alle")}><span><Eye size={14}/><strong>Volledig model</strong></span><em>{activeElements.length}</em></button>
+          {bimCategories.map(category=>{
+            const elements=activeElements.filter(element=>element.category===category);
+            if (!elements.length) return null;
+            const selected=elements.filter(element=>selectedIds.has(element.id)).length;
+            return <button className={`bim-layer-row ${categoryFilter===category?"active":""}`} key={category} onClick={()=>{setCategoryFilter(category);selectGroup(elements)}}><span><i className={`bim-layer-dot category-${category.toLocaleLowerCase()}`}></i><strong>{category}</strong><small>{elements[0]?.ifcType}</small></span><em>{selected?`${selected}/${elements.length}`:elements.length}</em></button>;
+          })}
+          <div className="bim-model-health"><span><CheckCircle2 size={16}/><strong>{ifcFile?"WebIFC geometrie actief":"Demomodel actief"}</strong></span><small>{activeElements.length} objecten hebben geometrie en een calculatieclassificatie.</small><button onClick={()=>setCategoryFilter("Alle")}><AlertTriangle size={14}/>{activeElements.filter(element=>element.warning).length} hoeveelheden te controleren</button></div>
+        </aside>
+        <main className="bim-viewer-panel">
+          <div className="bim-viewer-status"><span><i></i>3D-model</span><span>{visibleElements.length} zichtbaar</span><span>{selectedIds.size} geselecteerd</span></div>
+          <div className={`bim-model-scene rotation-${rotation}`} onDoubleClick={()=>{if(!ifcFile)selectGroup(visibleElements)}}>
+            <div className="bim-scene-grid"></div>
+            <div className="bim-building-shadow"></div>
+            {ifcFile ? <Suspense fallback={<div className="bim-ifc-loading"><span></span><strong>3D-engine laden…</strong></div>}><BimIfcViewer
+              file={ifcFile}
+              selectedExpressIds={new Set([...selectedIds].map(id=>Number(id)).filter(Number.isFinite))}
+              visibleExpressIds={ifcElements.length?new Set(visibleElements.map(element=>Number(element.id))):undefined}
+              command={viewerCommand}
+              onSelectionChange={ids=>{setSelectedIds(new Set([...ids].map(String)));setNotice(ids.size?`${ids.size} IFC-object${ids.size===1?"":"en"} geselecteerd.`:"Selectie gewist.")}}
+              onProgress={(progress,message)=>{setIfcProgress(progress);setNotice(message)}}
+              onError={message=>{setIsImporting(false);setNotice(message);setModelFormat("IFC · laden mislukt")}}
+              onModelLoaded={report=>{setIfcElements(report.elements);setImportCount(report.elementCount);setModelFormat(`${report.schema} · WebIFC · ${number(report.triangleCount)} driehoeken`);setIsImporting(false);setNotice(`${report.elementCount} echte IFC-objecten zijn grafisch en calculatief gekoppeld.`)}}
+            /></Suspense> : visibleElements.map(element=><button
+              type="button"
+              key={element.id}
+              aria-label={`${element.label} selecteren`}
+              className={`bim-model-object bim-shape-${element.shape} category-${element.category.toLocaleLowerCase()} ${selectedIds.has(element.id)?"selected":""}`}
+              style={{left:`${element.x}%`,top:`${element.y}%`,width:`${element.width}%`,height:`${element.height}%`}}
+              onClick={event=>toggleElement(element,event.shiftKey||event.ctrlKey||event.metaKey)}
+            ><span>{selectedIds.has(element.id)&&<CheckCircle2 size={14}/>}</span></button>)}
+            {ifcFile&&isImporting&&<div className="bim-ifc-progress"><span style={{width:`${ifcProgress}%`}}></span><strong>{ifcProgress}%</strong></div>}
+            <div className="bim-orientation"><span>N</span><i></i></div>
+            <div className="bim-selection-hint">Klik = selecteer · Shift + klik = meervoudig · dubbelklik = zichtbare selectie</div>
+          </div>
+          <div className="bim-view-controls"><button aria-label="Model passend tonen" onClick={()=>ifcFile?setViewerCommand({sequence:Date.now(),type:"fit"}):setRotation(value=>(value+3)%4)}><Maximize2 size={15}/></button>{ifcFile&&<><button onClick={()=>setViewerCommand({sequence:Date.now(),type:"top"})}>Boven</button><button onClick={()=>setViewerCommand({sequence:Date.now(),type:"front"})}>Voor</button><button onClick={()=>setViewerCommand({sequence:Date.now(),type:"right"})}>Rechts</button></>}<span>{ifcFile?"WebIFC":"LOD 300"}</span></div>
+        </main>
+        <aside className="bim-calculation-panel">
+          <div className="bim-panel-title"><div><p className="eyebrow">Gekoppelde calculatie</p><strong>Geselecteerde hoeveelheden</strong></div><Calculator size={17}/></div>
+          <div className="bim-selection-summary"><span><strong>{selectedElements.length}</strong><small>objecten</small></span><span><strong>{groupedSelection.length}</strong><small>posten</small></span><span><strong>{money(selectionTotal)}</strong><small>directe kost</small></span></div>
+          <div className="bim-takeoff-list">{groupedSelection.map(group=><button key={group.category} onClick={()=>selectGroup(group.elements)}><i className={`bim-layer-dot category-${group.category.toLocaleLowerCase()}`}></i><span><strong>{group.category}</strong><small>{group.elements.length} objecten · {number(group.quantity)} {group.unit}</small></span><em>{money(group.quantity*group.unitCost)}</em></button>)}{!groupedSelection.length&&<div className="bim-empty-selection"><Boxes size={25}/><strong>Selecteer in het model</strong><span>Objecten, een laag of een volledige verdieping verschijnen hier direct als calculatieregel.</span></div>}</div>
+          {selectedElements.some(element=>element.warning)&&<div className="bim-quantity-warning"><AlertTriangle size={16}/><span><strong>Hoeveelheidscontrole nodig</strong><small>{selectedElements.filter(element=>element.warning).map(element=>element.warning).join(" ")}</small></span></div>}
+          <div className="bim-cost-footer"><div><span>Raming geselecteerd</span><strong>{money(selectionTotal)}</strong></div><small>Op basis van actieve BouwFlow-kostprijzen. De BIM-GUID’s blijven als bronverwijzing bewaard.</small><button className="primary" disabled={!groupedSelection.length||isAdding} onClick={()=>void addToCalculation()}><Plus size={16}/>{isAdding?"Toevoegen…":`${groupedSelection.length} post${groupedSelection.length===1?"":"en"} naar calculatie`}</button></div>
+        </aside>
+      </div>
+    </section>
+  </div>;
 }
 
 function CalculationWorkbenchPanel({ state, calculation, libraries, libraryItems, collapsed, onCollapsedChange, compareSourceId, onCompareSource, onOpenCompare, onTransfer }: {

@@ -10,6 +10,16 @@ export default defineConfig({
         codeSplitting: {
           groups: [
             {
+              name: 'bim-web-ifc',
+              test: /node_modules[\\/]web-ifc[\\/]/,
+              priority: 70,
+            },
+            {
+              name: 'bim-three',
+              test: /node_modules[\\/]three[\\/]/,
+              priority: 60,
+            },
+            {
               name: 'spreadsheet-import',
               test: /node_modules[\\/](exceljs|jszip|fast-csv|saxes|readable-stream|archiver|dayjs)[\\/]/,
               priority: 50,
