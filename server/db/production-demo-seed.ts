@@ -106,6 +106,49 @@ function projectDemoData() {
   return { calculation, chapterIds, workPackages }
 }
 
+async function seedDemoCalculationVersions(client: PoolClient, tenantId: string) {
+  const calculationExists = await client.query<{ id: string }>('SELECT id FROM calculations WHERE tenant_id=$1 AND id=$2', [tenantId, DEMO_CALCULATION_ID])
+  if (!calculationExists.rowCount) return false
+
+  const { calculation, chapterIds } = projectDemoData()
+  const snapshot = {
+    ...structuredClone(calculation),
+    id:DEMO_CALCULATION_ID,
+    opportunityId:DEMO_OPPORTUNITY_ID,
+    chapters:calculation.chapters.map(chapter=>({...chapter,id:chapterIds.get(chapter.id)!})),
+    items:calculation.items.map(item=>({...item,id:deterministicUuid('item',item.id),chapterId:item.chapterId?chapterIds.get(item.chapterId):null})),
+  }
+  const tenderBasis = {
+    ...structuredClone(snapshot),
+    status:'Review' as const,
+    overheadPct:6.5,
+    riskPct:7.5,
+    marginPct:8,
+    items:snapshot.items.slice(0,-1).map((item,index)=>index<3?{...item,quantity:Number((item.quantity*.96).toFixed(3)),material:Number((item.material*.95).toFixed(3))}:item),
+    updatedAt:'2026-07-14T15:30:00.000Z',
+  }
+  const submission = {
+    ...structuredClone(snapshot),
+    status:'Offerte' as const,
+    overheadPct:7,
+    riskPct:7,
+    marginPct:8.25,
+    items:snapshot.items.filter((_,index)=>index!==snapshot.items.length-2).map((item,index)=>index<4?{...item,material:Number((item.material*.98).toFixed(3)),notes:`${item.notes??''}${item.notes?' ':''}Prijs afgestemd op leveranciersronde 2.`}:item),
+    updatedAt:'2026-07-25T11:00:00.000Z',
+  }
+  const versions = [
+    [deterministicUuid('calculation-version','oosterweel-v1'),1,'Tenderbasis','Scopecontrole na eerste leveranciersronde',tenderBasis,deterministicUuid('demo-user','david-projectdirecteur'),'2026-07-14T15:30:00.000Z'],
+    [deterministicUuid('calculation-version','oosterweel-v2'),2,'Inschrijvingsversie','Definitieve prijsoptimalisatie vóór indiening',submission,deterministicUuid('demo-user','noor-calculator'),'2026-07-25T11:00:00.000Z'],
+  ]
+  let inserted = false
+  for (const [id,version,label,reason,versionSnapshot,createdBy,createdAt] of versions) {
+    const result = await client.query(`INSERT INTO calculation_versions (tenant_id,id,calculation_id,version,label,reason,snapshot,created_by,created_at)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT DO NOTHING RETURNING id`, [tenantId,id,DEMO_CALCULATION_ID,version,label,reason,JSON.stringify(versionSnapshot),createdBy,createdAt])
+    inserted = inserted || Boolean(result.rowCount)
+  }
+  return inserted
+}
+
 async function seedEmptyTenant(client: PoolClient, tenantId: string) {
   const existingEntity = await client.query<{ id: string }>(
     'SELECT id FROM legal_entities WHERE tenant_id=$1 ORDER BY created_at LIMIT 1',
@@ -388,10 +431,11 @@ export async function ensureProductionDemoData(pool: Pool, context: RequestConte
     if (isEmpty) await seedEmptyTenant(client, context.tenantId)
     const expanded = await seedDemoProjectExpansion(client, context.tenantId)
     const fullEnvironment = await seedFullProductionDemo(client, context.tenantId, storage)
-    if (isEmpty || expanded || fullEnvironment) await client.query('UPDATE tenants SET data_revision=data_revision+1 WHERE id=$1', [context.tenantId])
+    const calculationVersions = await seedDemoCalculationVersions(client, context.tenantId)
+    if (isEmpty || expanded || fullEnvironment || calculationVersions) await client.query('UPDATE tenants SET data_revision=data_revision+1 WHERE id=$1', [context.tenantId])
     await client.query('COMMIT')
     initializedTenants.add(context.tenantId)
-    return isEmpty || expanded || fullEnvironment
+    return isEmpty || expanded || fullEnvironment || calculationVersions
   } catch (error) {
     await client.query('ROLLBACK')
     throw error

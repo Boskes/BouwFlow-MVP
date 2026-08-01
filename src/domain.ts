@@ -490,6 +490,40 @@ export interface CalculationVersion {
   createdBy: string
 }
 
+export type CalculationSnapshotDifferenceStatus = 'Toegevoegd' | 'Verwijderd' | 'Gewijzigd' | 'Gelijk'
+
+export interface CalculationSnapshotItemDifference {
+  code: string
+  status: CalculationSnapshotDifferenceStatus
+  before?: BoqItem
+  after?: BoqItem
+  beforeChapter: string
+  afterChapter: string
+  beforeQuantity: number
+  afterQuantity: number
+  beforeUnitCost: number
+  afterUnitCost: number
+  beforeTotal: number
+  afterTotal: number
+  totalDifference: number
+  changedFields: string[]
+}
+
+export interface CalculationSnapshotComparison {
+  beforeDirectCost: number
+  afterDirectCost: number
+  directCostDifference: number
+  beforeSellingTotal: number
+  afterSellingTotal: number
+  sellingTotalDifference: number
+  rows: CalculationSnapshotItemDifference[]
+  added: number
+  removed: number
+  changed: number
+  unchanged: number
+  pricingChanges: Array<{ field: string; label: string; before: number; after: number; difference: number }>
+}
+
 export interface CalculationScenario {
   id: string
   calculationId: string
@@ -2819,6 +2853,76 @@ export const sellingTotal = (calculation: Calculation) => {
   const discounted = withMargin * (1 - (calculation.discountPct ?? 0) / 100)
   const step = calculation.roundingStep ?? 0
   return step > 0 ? Math.round(discounted / step) * step : discounted
+}
+
+const calculationNumbersDiffer = (before: number, after: number) => Math.abs(before - after) > 0.000001
+
+export function compareCalculationSnapshots(before: Calculation, after: Calculation): CalculationSnapshotComparison {
+  const beforeByCode = new Map(before.items.map(item => [item.code, item]))
+  const afterByCode = new Map(after.items.map(item => [item.code, item]))
+  const beforeChapterById = new Map(before.chapters.map(chapter => [chapter.id, `${chapter.code} · ${chapter.name}`]))
+  const afterChapterById = new Map(after.chapters.map(chapter => [chapter.id, `${chapter.code} · ${chapter.name}`]))
+  const codes = [...new Set([...beforeByCode.keys(), ...afterByCode.keys()])].sort((left, right) => left.localeCompare(right, 'nl-BE', { numeric:true }))
+
+  const rows = codes.map(code => {
+    const beforeItem = beforeByCode.get(code)
+    const afterItem = afterByCode.get(code)
+    const beforeQuantity = beforeItem ? boqItemQuantity(beforeItem) : 0
+    const afterQuantity = afterItem ? boqItemQuantity(afterItem) : 0
+    const beforeItemUnitCost = beforeItem ? unitCost(beforeItem) : 0
+    const afterItemUnitCost = afterItem ? unitCost(afterItem) : 0
+    const beforeTotal = beforeQuantity * beforeItemUnitCost
+    const afterTotal = afterQuantity * afterItemUnitCost
+    const beforeChapter = beforeItem?.chapterId ? beforeChapterById.get(beforeItem.chapterId) ?? 'Onbekend hoofdstuk' : 'Zonder hoofdstuk'
+    const afterChapter = afterItem?.chapterId ? afterChapterById.get(afterItem.chapterId) ?? 'Onbekend hoofdstuk' : 'Zonder hoofdstuk'
+    const changedFields: string[] = []
+
+    if (!beforeItem) changedFields.push('Nieuwe post')
+    else if (!afterItem) changedFields.push('Verwijderde post')
+    else {
+      if (beforeItem.description !== afterItem.description) changedFields.push('Omschrijving')
+      if (beforeChapter !== afterChapter) changedFields.push('Hoofdstuk')
+      if (beforeItem.unit !== afterItem.unit) changedFields.push('Eenheid')
+      if (calculationNumbersDiffer(beforeQuantity, afterQuantity)) changedFields.push('Hoeveelheid')
+      if (calculationNumbersDiffer(beforeItemUnitCost, afterItemUnitCost)) changedFields.push('Eenheidsprijs')
+      if (beforeItem.notes !== afterItem.notes) changedFields.push('Notitie')
+      if (beforeItem.postType !== afterItem.postType || beforeItem.quantityType !== afterItem.quantityType) changedFields.push('Postinstellingen')
+      const beforePriceStructure = JSON.stringify({ labor:beforeItem.labor, material:beforeItem.material, equipment:beforeItem.equipment, subcontracting:beforeItem.subcontracting, wastePct:beforeItem.wastePct, itemRiskPct:beforeItem.itemRiskPct, markupPct:beforeItem.markupPct, variables:beforeItem.variables, formulas:beforeItem.formulas, priceAdjustments:beforeItem.priceAdjustments, costApplications:beforeItem.costApplications })
+      const afterPriceStructure = JSON.stringify({ labor:afterItem.labor, material:afterItem.material, equipment:afterItem.equipment, subcontracting:afterItem.subcontracting, wastePct:afterItem.wastePct, itemRiskPct:afterItem.itemRiskPct, markupPct:afterItem.markupPct, variables:afterItem.variables, formulas:afterItem.formulas, priceAdjustments:afterItem.priceAdjustments, costApplications:afterItem.costApplications })
+      if (beforePriceStructure !== afterPriceStructure && !changedFields.includes('Eenheidsprijs')) changedFields.push('Prijsopbouw')
+    }
+
+    const status: CalculationSnapshotDifferenceStatus = !beforeItem ? 'Toegevoegd' : !afterItem ? 'Verwijderd' : changedFields.length ? 'Gewijzigd' : 'Gelijk'
+    return { code, status, before:beforeItem, after:afterItem, beforeChapter, afterChapter, beforeQuantity, afterQuantity, beforeUnitCost:beforeItemUnitCost, afterUnitCost:afterItemUnitCost, beforeTotal, afterTotal, totalDifference:afterTotal-beforeTotal, changedFields }
+  })
+
+  const pricingFields = [
+    ['siteOverheadPct','Werfkosten'], ['overheadPct','Algemene kosten'], ['riskPct','Risico'], ['escalationPct','Indexatie'], ['marginPct','Marge'], ['discountPct','Korting'], ['roundingStep','Afronding'],
+  ] as const
+  const pricingChanges = pricingFields.map(([field,label]) => {
+    const beforeValue = before[field] ?? 0
+    const afterValue = after[field] ?? 0
+    return { field, label, before:beforeValue, after:afterValue, difference:afterValue-beforeValue }
+  }).filter(item => calculationNumbersDiffer(item.before,item.after))
+  const beforeDirectCost = directCost(before)
+  const afterDirectCost = directCost(after)
+  const beforeSellingTotal = sellingTotal(before)
+  const afterSellingTotal = sellingTotal(after)
+
+  return {
+    beforeDirectCost,
+    afterDirectCost,
+    directCostDifference:afterDirectCost-beforeDirectCost,
+    beforeSellingTotal,
+    afterSellingTotal,
+    sellingTotalDifference:afterSellingTotal-beforeSellingTotal,
+    rows,
+    added:rows.filter(row=>row.status==='Toegevoegd').length,
+    removed:rows.filter(row=>row.status==='Verwijderd').length,
+    changed:rows.filter(row=>row.status==='Gewijzigd').length,
+    unchanged:rows.filter(row=>row.status==='Gelijk').length,
+    pricingChanges,
+  }
 }
 
 export function bulkBoqPriceAdjustmentPreview(
