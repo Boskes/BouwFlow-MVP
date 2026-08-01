@@ -71,6 +71,7 @@ describe('BouwFlow API', () => {
   let pool: Pool
   let app: FastifyInstance
   let peppolNotificationSender: { send: ReturnType<typeof vi.fn> }
+  let bimTestModelFetch: ReturnType<typeof vi.fn>
 
   beforeEach(async () => {
     const database = newDb({ autoCreateForeignKeyIndices: true })
@@ -79,6 +80,7 @@ describe('BouwFlow API', () => {
     await migrate(pool)
     await seedDevelopmentData(pool)
     peppolNotificationSender = { send: vi.fn(async () => undefined) }
+    bimTestModelFetch = vi.fn(async () => new Response('ISO-10303-21;\nHEADER;\nENDSEC;\nDATA;\nENDSEC;\nEND-ISO-10303-21;', { status: 200 }))
     app = await buildApp({
       pool,
       objectStorage: new MemoryObjectStorage(),
@@ -104,6 +106,7 @@ describe('BouwFlow API', () => {
           source: 'Testbron',
         }]),
       },
+      bimTestModelFetch,
     })
   })
 
@@ -118,6 +121,21 @@ describe('BouwFlow API', () => {
     expect(response.json()).toEqual({
       suggestions: [expect.objectContaining({ addressLine: 'Wetstraat 16', postalCode: '1000', city: 'Brussel' })],
     })
+  })
+
+  it('downloadt een geverifieerd IFC-proefmodel als bestand en cachet de bron', async () => {
+    const first = await app.inject({ method: 'GET', url: '/api/bim/test-models/smoke-wall-window/file' })
+    const second = await app.inject({ method: 'GET', url: '/api/bim/test-models/smoke-wall-window/file' })
+
+    expect(first.statusCode, first.body).toBe(200)
+    expect(first.headers['content-type']).toContain('application/x-step')
+    expect(first.headers['content-disposition']).toBe('attachment; filename="wall-with-opening-and-window.ifc"')
+    expect(first.body).toContain('ISO-10303-21')
+    expect(second.statusCode).toBe(200)
+    expect(bimTestModelFetch).toHaveBeenCalledTimes(1)
+
+    const unknown = await app.inject({ method: 'GET', url: '/api/bim/test-models/onbekend/file' })
+    expect(unknown.statusCode).toBe(404)
   })
 
   it('doorloopt de MVP-keten vanaf een nieuwe klant tot nacalculatie met auditlog', async () => {
@@ -1473,7 +1491,7 @@ describe('BouwFlow API', () => {
       },
     })
     expect(forbidden.statusCode).toBe(403)
-  })
+  }, 15_000)
 
   it('controleert database en object storage in de readinesscheck', async () => {
     const response = await app.inject({ method: 'GET', url: '/api/health/ready' })

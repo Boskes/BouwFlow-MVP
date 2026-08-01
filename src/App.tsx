@@ -1,4 +1,5 @@
 import { Fragment, Suspense, lazy, type CSSProperties, type DragEvent, type FormEvent, type PointerEvent as ReactPointerEvent, type WheelEvent as ReactWheelEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { bimProductionTestModels, type BimProductionTestModel } from "./bim-test-models";
 import {
   Activity,
   AlertTriangle,
@@ -4237,13 +4238,6 @@ const bimDemoElements: BimModelElement[] = [
 const bimCategories = ["Wanden","Vloeren","Kolommen","Balken","Ramen","Deuren","Daken","Trappen","Installaties","Overig"] as BimElementCategory[];
 const bimCategoryCode: Record<BimElementCategory,string> = { Wanden:"21.10", Vloeren:"22.10", Kolommen:"23.10", Balken:"23.20", Ramen:"31.10", Deuren:"32.10", Daken:"27.10", Trappen:"24.10", Installaties:"60.10", Overig:"90.10" };
 const bimUnitCosts: Record<BimElementCategory,number> = { Wanden:178,Vloeren:94,Kolommen:890,Balken:1120,Ramen:1280,Deuren:2460,Daken:132,Trappen:4850,Installaties:650,Overig:125 };
-const bimProductionTestModels = [
-  { label:"Snelle rooktest", detail:"IFC4 · wand, opening en raam · 12 KB", href:"https://raw.githubusercontent.com/buildingSMART/Sample-Test-Files/main/IFC%204.0.2.1%20(IFC%204)/ISO%20Spec%20-%20ReferenceView_V1.2/wall-with-opening-and-window.ifc" },
-  { label:"Architectuurmodel", detail:"IFC4 · volledig gebouwmodel · 220 KB", href:"https://raw.githubusercontent.com/buildingSMART/Sample-Test-Files/main/IFC%204.0.2.1%20(IFC%204)/PCERT-Sample-Scene/Building-Architecture.ifc" },
-  { label:"Constructiemodel", detail:"IFC4 · kolommen, balken en platen · 290 KB", href:"https://raw.githubusercontent.com/buildingSMART/Sample-Test-Files/main/IFC%204.0.2.1%20(IFC%204)/PCERT-Sample-Scene/Building-Structural.ifc" },
-  { label:"Inframodel weg", detail:"IFC4.3 · weg- en terreingeometrie · 407 KB", href:"https://raw.githubusercontent.com/buildingSMART/Sample-Test-Files/main/IFC%204.3.2.0%20(IFC4X3_ADD2)/PCERT-Sample-Scene/Infra-Road.ifc" },
-] as const;
-
 function BimCalculationWorkspace({ calculation, actions, onClose, onAdded }: { calculation: Calculation; actions: ReturnType<typeof useBouwFlowStore>["actions"]; onClose: () => void; onAdded: (count:number) => void }) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [selectedIds,setSelectedIds] = useState<Set<string>>(new Set(["wand-v1-a","raam-v1-01","raam-v1-02"]));
@@ -4259,6 +4253,7 @@ function BimCalculationWorkspace({ calculation, actions, onClose, onAdded }: { c
   const [importCount,setImportCount] = useState(1842);
   const [isImporting,setIsImporting] = useState(false);
   const [isAdding,setIsAdding] = useState(false);
+  const [downloadingTestModelId,setDownloadingTestModelId] = useState<string>();
   const [rotation,setRotation] = useState(0);
   const [notice,setNotice] = useState("Selectie in model en calculatie is live gekoppeld.");
   const activeElements = useMemo<BimModelElement[]>(() => ifcElements.length ? ifcElements.map(element => {
@@ -4298,6 +4293,27 @@ function BimCalculationWorkspace({ calculation, actions, onClose, onAdded }: { c
     setCategoryFilter("Alle");
     setStoreyFilter("Alle");
     setNotice("WebIFC initialiseert de geometrie-engine…");
+  };
+  const downloadTestModel = async (model:BimProductionTestModel) => {
+    setDownloadingTestModelId(model.id);
+    setNotice(`${model.label} wordt als IFC-bestand voorbereid…`);
+    try {
+      const blob = await actions.downloadBimTestModel(model.id);
+      if (!blob) throw new Error("Geen bestand ontvangen");
+      const url = URL.createObjectURL(blob);
+      const link = window.document.createElement("a");
+      link.href = url;
+      link.download = model.fileName;
+      window.document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+      setNotice(`${model.fileName} is gedownload. Importeer het bestand via IFC-model importeren.`);
+    } catch {
+      setNotice(`${model.label} kon niet worden gedownload. Probeer opnieuw.`);
+    } finally {
+      setDownloadingTestModelId(undefined);
+    }
   };
   const addToCalculation = async () => {
     if (!groupedSelection.length) return;
@@ -4344,7 +4360,7 @@ function BimCalculationWorkspace({ calculation, actions, onClose, onAdded }: { c
             <div>
               <strong>Geverifieerde proefmodellen</strong>
               <small>Download een bestand en importeer het hiernaast. Bron: buildingSMART, CC BY 4.0.</small>
-              {bimProductionTestModels.map(model=><a key={model.href} href={model.href} target="_blank" rel="noreferrer"><span>{model.label}<small>{model.detail}</small></span><ExternalLink size={14}/></a>)}
+              {bimProductionTestModels.map(model=><button type="button" key={model.id} disabled={Boolean(downloadingTestModelId)} onClick={()=>void downloadTestModel(model)}><span>{model.label}<small>{model.detail}</small></span>{downloadingTestModelId===model.id?<RotateCcw size={14}/>:<Download size={14}/>}</button>)}
               <a className="bim-testdata-guide" href="https://github.com/Boskes/BouwFlow-MVP/blob/main/docs/BIM_PRODUCTION_TESTING.md" target="_blank" rel="noreferrer"><span>Volledig testplan<small>Checks voor selectie, geometrie en calculatie</small></span><ExternalLink size={14}/></a>
             </div>
           </details>

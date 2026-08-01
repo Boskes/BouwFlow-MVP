@@ -17,6 +17,7 @@ import { readOfflineSnapshot, saveOfflineSnapshot } from './offline-queue'
 import { parseBoqFileLocally } from './boq-import'
 import { searchBelgianAddressesOnline } from './belgian-addresses'
 import { buildOosterweelClass8DemoCalculation } from './class8-demo-calculation'
+import { getBimProductionTestModel } from './bim-test-models'
 
 const STORAGE_KEY = 'bouwflow.mvp.v1'
 const DEMO_DATA_VERSION_KEY = 'bouwflow.demo.version'
@@ -786,6 +787,13 @@ export function useBouwFlowStore(tokenProvider?: () => Promise<string | undefine
   }, [api])
 
   const actions = useMemo(() => ({
+    async downloadBimTestModel(id: string) {
+      if (api) return remote(() => api.downloadBimTestModel(id), () => undefined)
+      const model = getBimProductionTestModel(id)
+      if (!model) return undefined
+      const response = await fetch(model.sourceUrl)
+      return response.ok ? response.blob() : undefined
+    },
     async searchBelgianAddresses(query: string, signal?: AbortSignal) {
       return api ? api.searchBelgianAddresses(query, signal) : searchBelgianAddressesOnline(query, signal)
     },
