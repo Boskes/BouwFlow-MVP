@@ -912,6 +912,22 @@ export interface PlanningConflict {
   activityIds: string[]
   startDate: string
   endDate: string
+  totalAllocationPct?: number
+  capacityPct?: number
+  usages?: PlanningConflictUsage[]
+}
+
+export interface PlanningConflictUsage {
+  projectId: string
+  projectNumber: string
+  projectName: string
+  activityId: string
+  activityName: string
+  assignmentId: string
+  allocationPct: number
+  startDate: string
+  endDate: string
+  resourceType: PlanningResourceType
 }
 
 export type PlanningBaselineApprovalStatus = 'Concept' | 'Ter goedkeuring' | 'Goedgekeurd' | 'Vervangen'
@@ -2669,17 +2685,75 @@ export const planningConflicts = (projects: Project[], employees: Employee[] = [
       if (!seen.has(key)) conflicts.push({ id: key, resourceName: left.assignment.resourceName, resourceType: left.assignment.resourceType, severity: 'Kritiek', message: `Attest vervalt op ${left.assignment.certificateExpiresOn}, vóór het einde van de activiteit.`, projectIds: [left.project.id], activityIds: [left.activity.id], startDate: left.activity.startDate, endDate: left.activity.endDate })
       seen.add(key)
     }
-    for (let rightIndex = leftIndex + 1; rightIndex < usages.length; rightIndex += 1) {
-      const right = usages[rightIndex]
-      if (left.assignment.resourceName.trim().toLocaleLowerCase() !== right.assignment.resourceName.trim().toLocaleLowerCase()) continue
-      if (left.activity.id === right.activity.id || left.activity.endDate < right.activity.startDate || right.activity.endDate < left.activity.startDate) continue
-      const matchingEmployee = employeeFor(left.assignment) ?? employeeFor(right.assignment)
-      if (left.assignment.allocationPct + right.assignment.allocationPct <= (matchingEmployee?.employmentPct ?? 100)) continue
-      const ids = [left.activity.id, right.activity.id].sort()
-      const key = `capacity:${left.assignment.resourceName.toLocaleLowerCase()}:${ids.join(':')}`
-      if (seen.has(key)) continue
-      seen.add(key)
-      conflicts.push({ id: key, resourceName: left.assignment.resourceName, resourceType: left.assignment.resourceType, severity: 'Kritiek', message: `${left.assignment.allocationPct + right.assignment.allocationPct}% gelijktijdig ingepland.`, projectIds: [...new Set([left.project.id, right.project.id])], activityIds: ids, startDate: left.activity.startDate > right.activity.startDate ? left.activity.startDate : right.activity.startDate, endDate: left.activity.endDate < right.activity.endDate ? left.activity.endDate : right.activity.endDate })
+  }
+  const resourceGroups = new Map<string, typeof usages>()
+  for (const usage of usages) {
+    const employee = employeeFor(usage.assignment)
+    const crew = usage.assignment.resourceType === 'Ploeg'
+      ? crews.find(item => item.id === usage.assignment.crewId || item.name.trim().toLocaleLowerCase() === usage.assignment.resourceName.trim().toLocaleLowerCase())
+      : undefined
+    const resourceKey = employee
+      ? `employee:${employee.id}`
+      : usage.assignment.employeeId
+        ? `employee:${usage.assignment.employeeId}`
+        : crew
+          ? `crew:${crew.id}`
+          : usage.assignment.crewId
+            ? `crew:${usage.assignment.crewId}`
+            : `${usage.assignment.resourceType.toLocaleLowerCase()}:${usage.assignment.resourceName.trim().toLocaleLowerCase()}`
+    resourceGroups.set(resourceKey, [...(resourceGroups.get(resourceKey) ?? []), usage])
+  }
+  for (const [resourceKey, resourceUsages] of resourceGroups) {
+    if (resourceUsages.length < 2) continue
+    const matchingEmployee = resourceUsages.map(usage => employeeFor(usage.assignment)).find(Boolean)
+    const capacityPct = matchingEmployee?.employmentPct ?? 100
+    const boundaries = [...new Set(resourceUsages.flatMap(usage => [usage.activity.startDate, planningAddDays(usage.activity.endDate, 1)]))].sort()
+    const segments: Array<{ startDate: string; endDate: string; active: typeof usages; totalAllocationPct: number; signature: string }> = []
+    for (let index = 0; index < boundaries.length - 1; index += 1) {
+      const startDate = boundaries[index]
+      const endDate = planningAddDays(boundaries[index + 1], -1)
+      const active = resourceUsages.filter(usage => usage.activity.startDate <= startDate && usage.activity.endDate >= startDate)
+      const totalAllocationPct = active.reduce((sum, usage) => sum + usage.assignment.allocationPct, 0)
+      if (active.length < 2 || totalAllocationPct <= capacityPct) continue
+      const signature = active.map(usage => `${usage.project.id}:${usage.activity.id}:${usage.assignment.id}`).sort().join('|')
+      const previous = segments.at(-1)
+      if (previous && previous.signature === signature && planningAddDays(previous.endDate, 1) === startDate) {
+        previous.endDate = endDate
+        continue
+      }
+      segments.push({ startDate, endDate, active, totalAllocationPct, signature })
+    }
+    for (const segment of segments) {
+      const projectIds = [...new Set(segment.active.map(usage => usage.project.id))]
+      const activityIds = [...new Set(segment.active.map(usage => usage.activity.id))]
+      const first = segment.active[0]
+      const key = `capacity:${resourceKey}:${segment.signature}:${segment.startDate}:${segment.endDate}`
+      const projectLabel = projectIds.length === 1 ? '1 project' : `${projectIds.length} projecten`
+      conflicts.push({
+        id: key,
+        resourceName: first.assignment.resourceName,
+        resourceType: first.assignment.resourceType,
+        severity: 'Kritiek',
+        message: `${segment.totalAllocationPct}% gepland tegenover ${capacityPct}% capaciteit over ${activityIds.length} activiteiten in ${projectLabel}.`,
+        projectIds,
+        activityIds,
+        startDate: segment.startDate,
+        endDate: segment.endDate,
+        totalAllocationPct: segment.totalAllocationPct,
+        capacityPct,
+        usages: segment.active.map(usage => ({
+          projectId: usage.project.id,
+          projectNumber: usage.project.number,
+          projectName: usage.project.name,
+          activityId: usage.activity.id,
+          activityName: usage.activity.name,
+          assignmentId: usage.assignment.id,
+          allocationPct: usage.assignment.allocationPct,
+          startDate: usage.activity.startDate,
+          endDate: usage.activity.endDate,
+          resourceType: usage.assignment.resourceType,
+        })),
+      })
     }
   }
   for (const project of projects) for (const activity of project.planning.activities) {

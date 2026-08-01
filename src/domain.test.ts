@@ -148,6 +148,24 @@ describe('portfolioplanning', () => {
     expect(planningConflicts(projects)).toEqual([expect.objectContaining({ resourceName: 'Rupskraan 25t', severity: 'Kritiek', projectIds: ['p1', 'p2'], startDate: '2027-04-03', endDate: '2027-04-05' })])
   })
 
+  it('groepeert alle gelijktijdige boekingen in een bewerkbaar capaciteitsconflict', () => {
+    const projects = [
+      { id: 'p1', number: 'PRJ-001', name: 'Project Noord', planning: { status: 'Concept', baselineVersion: 0, updatedAt: '', activities: [{ ...activity('a1', '2027-04-01', '2027-04-10'), resourceAssignments: [{ id: 'r1', resourceType: 'Materieel' as const, resourceName: 'Rupskraan 25t', allocationPct: 100 }] }] } },
+      { id: 'p2', number: 'PRJ-002', name: 'Project Zuid', planning: { status: 'Concept', baselineVersion: 0, updatedAt: '', activities: [{ ...activity('a2', '2027-04-03', '2027-04-08'), resourceAssignments: [{ id: 'r2', resourceType: 'Materieel' as const, resourceName: 'Rupskraan 25t', allocationPct: 50 }] }] } },
+      { id: 'p3', number: 'PRJ-003', name: 'Project West', planning: { status: 'Concept', baselineVersion: 0, updatedAt: '', activities: [{ ...activity('a3', '2027-04-05', '2027-04-06'), resourceAssignments: [{ id: 'r3', resourceType: 'Materieel' as const, resourceName: 'Rupskraan 25t', allocationPct: 75 }] }] } },
+    ] as Project[]
+
+    const conflicts = planningConflicts(projects)
+    const peak = conflicts.find(conflict => conflict.startDate === '2027-04-05' && conflict.endDate === '2027-04-06')
+
+    expect(peak).toMatchObject({ totalAllocationPct: 225, capacityPct: 100, projectIds: ['p1', 'p2', 'p3'], activityIds: ['a1', 'a2', 'a3'] })
+    expect(peak?.usages).toEqual([
+      expect.objectContaining({ projectNumber: 'PRJ-001', projectName: 'Project Noord', activityName: 'a1', assignmentId: 'r1', allocationPct: 100 }),
+      expect.objectContaining({ projectNumber: 'PRJ-002', projectName: 'Project Zuid', activityName: 'a2', assignmentId: 'r2', allocationPct: 50 }),
+      expect.objectContaining({ projectNumber: 'PRJ-003', projectName: 'Project West', activityName: 'a3', assignmentId: 'r3', allocationPct: 75 }),
+    ])
+  })
+
   it('neemt goedgekeurd verlof en het arbeidsregime mee in de projectcapaciteit', () => {
     const employee = { id:'employee-1', employeeNumber:'MW-001', firstName:'Jan', lastName:'Peeters', email:'jan@example.be', role:'Grondwerker', legalEntityId:'entity-1', employmentPct:80, weeklyHours:32, annualLeaveHours:128, hireDate:'2020-01-01', skills:[], active:true, createdAt:'2020-01-01T00:00:00.000Z' }
     const crew = { id:'crew-1', name:'Ploeg Noord', legalEntityId:'entity-1', leaderEmployeeId:employee.id, memberEmployeeIds:[employee.id], active:true, createdAt:'2027-01-01T00:00:00.000Z' }
