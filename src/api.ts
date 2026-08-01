@@ -70,6 +70,12 @@ export class BouwFlowApi {
   createOrganization(input: OrganizationInput) { return this.request<Organization>('/api/organizations', { method: 'POST', body: JSON.stringify(input) }) }
   updateOrganization(id: string, input: OrganizationInput) { return this.request<Organization>(`/api/organizations/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(input) }) }
   searchBelgianAddresses(query: string, signal?: AbortSignal) { return this.request<{ suggestions: BelgianAddressSuggestion[] }>(`/api/addresses/be/suggestions?q=${encodeURIComponent(query)}&limit=12`, { signal }).then(result => result.suggestions) }
+  async downloadBimTestModel(id: string) {
+    const token = await this.tokenProvider?.()
+    const response = await this.fetcher(`${this.baseUrl}/api/bim/test-models/${encodeURIComponent(id)}/file`, { headers: { Accept: 'application/x-step,application/octet-stream', ...(token ? { Authorization: `Bearer ${token}` } : {}) } })
+    if (!response.ok) throw new ApiError(`IFC-proefmodeldownload mislukt (${response.status})`, response.status)
+    return response.blob()
+  }
   addCrmActivity(id: string, input: Omit<CrmActivity,'id'|'createdAt'>) { return this.request<Organization>(`/api/organizations/${encodeURIComponent(id)}/activities`, { method:'POST', body:JSON.stringify(input) }) }
   addOrganizationRelation(id: string, input: Omit<OrganizationRelation,'id'|'createdAt'>) { return this.request<Organization>(`/api/organizations/${encodeURIComponent(id)}/relations`, { method:'POST', body:JSON.stringify(input) }) }
   updateOrganizationBilling(id: string, input: OrganizationBillingInput) { return this.request<Organization>(`/api/organizations/${encodeURIComponent(id)}/billing-profile`, { method: 'PATCH', body: JSON.stringify(input) }) }

@@ -28,6 +28,9 @@ import { ApiMetrics } from './metrics.js'
 import { createAiGateway, createDocumentMailGateway, createIntegrationGateway, createQuoteMailGateway, EnterpriseGatewayError, type AiGateway, type DocumentMailGateway, type IntegrationGateway, type QuoteMailGateway } from './enterprise-gateways.js'
 import { serviceRequestSchema } from './schemas.js'
 import { HttpBelgianAddressSearch, type BelgianAddressSearch } from './belgian-address-search.js'
+import { getBimProductionTestModel } from '../src/bim-test-models.js'
+
+type BimTestModelFetch = (input: string | URL | Request, init?: RequestInit) => Promise<Response>
 
 export interface BuildAppOptions {
   pool: Pool
@@ -54,6 +57,7 @@ export interface BuildAppOptions {
   quoteMailGateway?: QuoteMailGateway
   documentMailGateway?: DocumentMailGateway
   belgianAddressSearch?: BelgianAddressSearch
+  bimTestModelFetch?: BimTestModelFetch
 }
 
 declare module 'fastify' {
@@ -96,11 +100,12 @@ function multipartField(fields: Record<string, unknown>, name: string) {
   return value && typeof value === 'object' && 'value' in value ? String((value as { value: unknown }).value) : undefined
 }
 
-export async function buildApp({ pool, authMode = 'development', logger = false, frontendOrigin = 'http://localhost:5173', objectStorage = new LocalObjectStorage(), peppolValidator = createPeppolValidator(), peppolAccessPoint = createPeppolAccessPoint(), peppolWebhookSecret = process.env.PEPPOL_WEBHOOK_SECRET ?? '', peppolWebhookPublicUrl = process.env.PEPPOL_WEBHOOK_PUBLIC_URL ?? '', peppolStatusPollIntervalMs, peppolNotificationSender, peppolNotificationTargets: configuredNotificationTargets, peppolNotificationDispatchIntervalMs, peppolCriticalSlaMinutes = Number(process.env.PEPPOL_CRITICAL_SLA_MINUTES ?? 15), trustProxy = false, rateLimitMax = 5_000, rateLimitWindowMs = 60_000, release = 'development', requireIdempotencyKey = false, integrationGateway = createIntegrationGateway(requireIdempotencyKey), aiGateway = createAiGateway(requireIdempotencyKey), quoteMailGateway = createQuoteMailGateway(requireIdempotencyKey), documentMailGateway = createDocumentMailGateway(requireIdempotencyKey), belgianAddressSearch = new HttpBelgianAddressSearch() }: BuildAppOptions) {
+export async function buildApp({ pool, authMode = 'development', logger = false, frontendOrigin = 'http://localhost:5173', objectStorage = new LocalObjectStorage(), peppolValidator = createPeppolValidator(), peppolAccessPoint = createPeppolAccessPoint(), peppolWebhookSecret = process.env.PEPPOL_WEBHOOK_SECRET ?? '', peppolWebhookPublicUrl = process.env.PEPPOL_WEBHOOK_PUBLIC_URL ?? '', peppolStatusPollIntervalMs, peppolNotificationSender, peppolNotificationTargets: configuredNotificationTargets, peppolNotificationDispatchIntervalMs, peppolCriticalSlaMinutes = Number(process.env.PEPPOL_CRITICAL_SLA_MINUTES ?? 15), trustProxy = false, rateLimitMax = 5_000, rateLimitWindowMs = 60_000, release = 'development', requireIdempotencyKey = false, integrationGateway = createIntegrationGateway(requireIdempotencyKey), aiGateway = createAiGateway(requireIdempotencyKey), quoteMailGateway = createQuoteMailGateway(requireIdempotencyKey), documentMailGateway = createDocumentMailGateway(requireIdempotencyKey), belgianAddressSearch = new HttpBelgianAddressSearch(), bimTestModelFetch = fetch }: BuildAppOptions) {
   const app = Fastify({ logger, trustProxy, bodyLimit: 12 * 1024 * 1024, requestIdHeader: 'x-request-id', routerOptions: { maxParamLength: 1_024 } })
   const rateLimits = new Map<string, { count: number; resetAt: number }>()
   const metrics = new ApiMetrics()
   const requestStarted = new WeakMap<FastifyRequest, bigint>()
+  const bimTestModelCache = new Map<string, Buffer>()
   const notificationTargets = configuredNotificationTargets ?? peppolNotificationTargets(process.env.PEPPOL_ALERT_EMAIL_TO, process.env.PEPPOL_ALERT_TEAMS_TARGETS)
   const notificationUrl = process.env.PEPPOL_NOTIFICATION_URL ?? ''
   const notificationSender = peppolNotificationSender ?? (notificationUrl
@@ -272,6 +277,38 @@ export async function buildApp({ pool, authMode = 'development', logger = false,
       request.log.warn({ error }, 'Belgische adreszoekdienst niet beschikbaar')
       throw new RepositoryError('De Belgische adreszoekdienst is tijdelijk niet bereikbaar. Vul het adres handmatig in of probeer opnieuw.', 503)
     }
+  })
+
+  app.get('/api/bim/test-models/:id/file', async (request, reply) => {
+    const { id } = z.object({ id: z.string().trim().min(1).max(80) }).parse(request.params)
+    const model = getBimProductionTestModel(id)
+    if (!model) throw new RepositoryError('IFC-proefmodel niet gevonden', 404)
+
+    let data = bimTestModelCache.get(model.id)
+    if (!data) {
+      let upstream: Response
+      try {
+        upstream = await bimTestModelFetch(model.sourceUrl, {
+          headers: { Accept: 'application/octet-stream,text/plain;q=0.9' },
+          signal: AbortSignal.timeout(30_000),
+        })
+      } catch {
+        throw new RepositoryError('IFC-proefmodel kon niet bij buildingSMART worden opgehaald', 502)
+      }
+      if (!upstream.ok) throw new RepositoryError(`IFC-proefmodel kon niet bij buildingSMART worden opgehaald (${upstream.status})`, 502)
+      data = Buffer.from(await upstream.arrayBuffer())
+      if (!data.length || data.length > 10 * 1024 * 1024 || !data.subarray(0, 256).toString('utf8').includes('ISO-10303-21')) {
+        throw new RepositoryError('buildingSMART leverde geen geldig IFC-bestand', 502)
+      }
+      bimTestModelCache.set(model.id, data)
+    }
+
+    return reply
+      .header('Content-Type', 'application/x-step')
+      .header('Content-Disposition', `attachment; filename="${model.fileName}"`)
+      .header('Content-Length', String(data.length))
+      .header('Cache-Control', 'private, max-age=86400')
+      .send(data)
   })
   app.patch('/api/settings/peppol-notifications', { preHandler: [requireRoles('Administrator', 'Directie', 'Financiële administratie'), requireAllLegalEntities] }, async request => repository.updatePeppolNotificationSettings(request.context, peppolNotificationSettingsSchema.parse(request.body)))
   app.post('/api/settings/peppol-notifications/test', { preHandler: [requireRoles('Administrator', 'Directie', 'Financiële administratie'), requireAllLegalEntities] }, async request => {
