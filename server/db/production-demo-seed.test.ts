@@ -32,8 +32,9 @@ describe('production demo seed', () => {
   it('vult de lege BouwFlow-tenant met de klasse 8-calculatie en een project', async () => {
     await expect(ensureProductionDemoData(pool, adminContext)).resolves.toBe(true)
 
-    const [calculations, chapters, items, projects, reports, costs, changes, forecasts, pipeline, users, documents, quotes, statements, invoices, orders, certificates, blueprint, tender] = await Promise.all([
+    const [calculations, calculationVersions, chapters, items, projects, reports, costs, changes, forecasts, pipeline, users, documents, quotes, statements, invoices, orders, certificates, blueprint, tender] = await Promise.all([
       pool.query<{ count: string }>('SELECT count(*)::text AS count FROM calculations WHERE tenant_id=$1', [BOUWFLOW_DEMO_TENANT_ID]),
+      pool.query<{ version: number; label: string; snapshot: { items: unknown[] } }>('SELECT version,label,snapshot FROM calculation_versions WHERE tenant_id=$1 ORDER BY version', [BOUWFLOW_DEMO_TENANT_ID]),
       pool.query<{ count: string }>('SELECT count(*)::text AS count FROM boq_chapters WHERE tenant_id=$1', [BOUWFLOW_DEMO_TENANT_ID]),
       pool.query<{ count: string }>('SELECT count(*)::text AS count FROM boq_items WHERE tenant_id=$1', [BOUWFLOW_DEMO_TENANT_ID]),
       pool.query<{ count: string }>('SELECT count(*)::text AS count FROM projects WHERE tenant_id=$1', [BOUWFLOW_DEMO_TENANT_ID]),
@@ -54,6 +55,12 @@ describe('production demo seed', () => {
     ])
 
     expect(calculations.rows[0].count).toBe('1')
+    expect(calculationVersions.rows).toEqual([
+      expect.objectContaining({version:1,label:'Tenderbasis',snapshot:expect.objectContaining({items:expect.any(Array)})}),
+      expect.objectContaining({version:2,label:'Inschrijvingsversie',snapshot:expect.objectContaining({items:expect.any(Array)})}),
+    ])
+    expect(calculationVersions.rows[0].snapshot.items.length).toBe(1999)
+    expect(calculationVersions.rows[1].snapshot.items.length).toBe(1999)
     expect(chapters.rows[0].count).toBe('180')
     expect(items.rows[0].count).toBe('2000')
     expect(projects.rows[0].count).toBe('1')

@@ -83,6 +83,7 @@ import type { IfcViewerCommand, IfcViewerElement } from "./BimIfcViewer";
 import {
   autoSchedulePlanningActivities,
   class8CalculationTemplates,
+  compareCalculationSnapshots,
   cashFlowEntries,
   cashFlowPeriods,
   createId,
@@ -123,6 +124,7 @@ import {
   type AuditTrailEntry,
   type BulkCostUpdateResult,
   type Calculation,
+  type CalculationVersion,
   type CalculationScenario,
   type CashFlowEntry,
   type ChangeOrder,
@@ -3695,6 +3697,7 @@ function Calculations({
   const [screen, setScreen] = useState<"overview" | "workspace">(selectedId ? "workspace" : "overview");
   const [compareSourceId, setCompareSourceId] = useState("");
   const [compareOpen, setCompareOpen] = useState(false);
+  const [versionCompareOpen, setVersionCompareOpen] = useState(false);
   const [pendingTransfer, setPendingTransfer] = useState<{ payload: CalculationTransferPayload; targetChapterId?: string | null }>();
   const [transferNotice, setTransferNotice] = useState("");
   const [lastTransferItemIds, setLastTransferItemIds] = useState<string[]>([]);
@@ -3921,6 +3924,7 @@ function Calculations({
                 <History size={16} />
                 Versie vastleggen
               </button>
+              <button className="secondary" disabled={!versions.length} onClick={() => setVersionCompareOpen(true)}><GitCompareArrows size={16}/>Versies vergelijken</button>
               <button
                 className="primary"
                 onClick={() => setImportOpen(true)}
@@ -4016,6 +4020,7 @@ function Calculations({
                 </small>
               </div>
             ))}
+            <button type="button" className="mini-button" onClick={() => setVersionCompareOpen(true)}><GitCompareArrows size={13}/>Vergelijk momentopnamen</button>
           </section>
         )}
         <ScenarioComparison
@@ -4129,6 +4134,7 @@ function Calculations({
         compareSourceId={compareSourceId}
         onCompareSource={setCompareSourceId}
         onOpenCompare={() => setCompareOpen(true)}
+        onCompareVersions={() => setVersionCompareOpen(true)}
         onTransfer={requestTransfer}
       />
       {versionOpen && (
@@ -4174,7 +4180,12 @@ function Calculations({
         />
       )}
       {pendingTransfer && <CalculationTransferDialog calculation={calculation} payload={pendingTransfer.payload} targetChapterId={pendingTransfer.targetChapterId} state={state} onCancel={() => setPendingTransfer(undefined)} onConfirm={performTransfer}/>}
-      {compareOpen && compareSourceId && <CalculationCompareDialog target={calculation} source={state.calculations.find(item => item.id === compareSourceId)} onClose={() => setCompareOpen(false)} onTransfer={(payload, targetChapterId) => { setCompareOpen(false); requestTransfer(payload, targetChapterId); }}/>}
+      {compareOpen && compareSourceId && (
+        <CalculationCompareDialog target={calculation} source={state.calculations.find(item => item.id === compareSourceId)} onClose={() => setCompareOpen(false)} onTransfer={(payload, targetChapterId) => { setCompareOpen(false); requestTransfer(payload, targetChapterId); }}/>
+      )}
+      {versionCompareOpen && versions.length > 0 && (
+        <CalculationVersionCompareDialog calculation={calculation} versions={versions} onClose={() => setVersionCompareOpen(false)}/>
+      )}
     </div>
   );
 }
@@ -4397,7 +4408,7 @@ function BimCalculationWorkspace({ calculation, actions, onClose, onAdded }: { c
   </div>;
 }
 
-function CalculationWorkbenchPanel({ state, calculation, libraries, libraryItems, collapsed, onCollapsedChange, compareSourceId, onCompareSource, onOpenCompare, onTransfer }: {
+function CalculationWorkbenchPanel({ state, calculation, libraries, libraryItems, collapsed, onCollapsedChange, compareSourceId, onCompareSource, onOpenCompare, onCompareVersions, onTransfer }: {
   state: BouwFlowState;
   calculation: Calculation;
   libraries: CostLibrary[];
@@ -4407,6 +4418,7 @@ function CalculationWorkbenchPanel({ state, calculation, libraries, libraryItems
   compareSourceId: string;
   onCompareSource: (id: string) => void;
   onOpenCompare: () => void;
+  onCompareVersions: () => void;
   onTransfer: (payload: CalculationTransferPayload, targetChapterId?: string | null) => void;
 }) {
   const preferenceKey = `bouwflow-calculation-panel:${state.currentUserId || "local-user"}`;
@@ -4452,7 +4464,7 @@ function CalculationWorkbenchPanel({ state, calculation, libraries, libraryItems
       {!sourceCalculation && <div className="dossier-empty">Selecteer een andere calculatie om hoofdstukken en posten te vergelijken.</div>}
     </div>}
     {tab === "checks" && <div className="workbench-panel-body validation-browser"><div className="validation-score"><ShieldCheck size={24}/><span><strong>{issues.length ? `${issues.length} aandachtspunten` : "Calculatie conform"}</strong><small>{issues.filter(issue=>issue.severity==="Kritiek").length} kritiek · {issues.filter(issue=>issue.severity==="Waarschuwing").length} waarschuwingen</small></span></div>{issues.map(issue => <button type="button" className={`validation-issue severity-${issue.severity.toLocaleLowerCase()}`} key={issue.id} onClick={() => { if(issue.itemId) document.getElementById(`boq-item-${issue.itemId}`)?.scrollIntoView({behavior:"smooth",block:"center"}); }}><AlertTriangle size={15}/><span><strong>{issue.title}</strong><small>{issue.detail}</small></span><Badge text={issue.severity}/></button>)}{!issues.length && <p className="safe-message"><CheckCircle2 size={16}/>Codes, hoeveelheden, kostprijzen en formules zijn gecontroleerd.</p>}</div>}
-    {tab === "history" && <div className="workbench-panel-body history-browser"><div className="autosave-card"><CheckCircle2 size={18}/><span><strong>Alle wijzigingen opgeslagen</strong><small>Laatst gewijzigd {dateTime(calculation.updatedAt)}</small></span></div>{versions.map(version => <article key={version.id}><History size={15}/><div><strong>V{version.version} · {version.label}</strong><small>{dateTime(version.createdAt)} · {version.createdBy}</small><p>{version.reason}</p></div><span>{money(sellingTotal(version.snapshot))}</span></article>)}{!versions.length && <div className="dossier-empty">Leg een eerste versie vast om wijzigingen en beslismomenten te documenteren.</div>}</div>}
+    {tab === "history" && <div className="workbench-panel-body history-browser"><div className="autosave-card"><CheckCircle2 size={18}/><span><strong>Alle wijzigingen opgeslagen</strong><small>Laatst gewijzigd {dateTime(calculation.updatedAt)}</small></span></div>{versions.length > 0 && <button type="button" className="secondary full-button version-compare-launch" onClick={onCompareVersions}><GitCompareArrows size={14}/>Versies en actuele stand vergelijken</button>}{versions.map(version => <article key={version.id}><History size={15}/><div><strong>V{version.version} · {version.label}</strong><small>{dateTime(version.createdAt)} · {version.createdBy}</small><p>{version.reason}</p></div><span>{money(sellingTotal(version.snapshot))}</span></article>)}{!versions.length && <div className="dossier-empty">Leg een eerste versie vast om wijzigingen en beslismomenten te documenteren.</div>}</div>}
   </aside>;
 }
 
@@ -4490,6 +4502,52 @@ function CalculationCompareDialog({ target, source, onClose, onTransfer }: { tar
     <div className="compare-grid-head"><span>Selectie</span><strong>{source.number} · bron</strong><strong>{target.number} · doel</strong><span>Afwijking</span></div>
     <div className="compare-grid-body">{rows.map(({item,counterpart,costDifference,quantityDifference,changed})=><article key={item.id} className={changed?"changed":"same"} draggable onDragStart={event=>writeCalculationTransfer(event,{type:"calculation-items",sourceCalculationId:source.id,itemIds:[item.id],label:`${item.code} · ${item.description}`})}><label><input type="checkbox" checked={selected.has(item.id)} onChange={event=>setSelected(current=>{const next=new Set(current);if(event.target.checked)next.add(item.id);else next.delete(item.id);return next})}/><GripVertical size={13}/></label><div><strong>{item.code} · {item.description}</strong><span>{number(boqItemQuantity(item))} {item.unit} · {money(unitCost(item))}/{item.unit}</span><small>{source.chapters.find(chapter=>chapter.id===item.chapterId)?.name??"Zonder hoofdstuk"}</small></div><div>{counterpart?<><strong>{counterpart.code} · {counterpart.description}</strong><span>{number(boqItemQuantity(counterpart))} {counterpart.unit} · {money(unitCost(counterpart))}/{counterpart.unit}</span><small>{target.chapters.find(chapter=>chapter.id===counterpart.chapterId)?.name??"Zonder hoofdstuk"}</small></>:<span className="missing-value">Ontbreekt in doelcalculatie</span>}</div><div><Badge text={counterpart?(changed?"Gewijzigd":"Gelijk"):"Ontbreekt"}/>{changed&&<><span>{quantityDifference?"Hoeveelheid "+number(quantityDifference):"Hoeveelheid gelijk"}</span><strong>{costDifference?`${costDifference>0?"+":""}${money(costDifference)}/eh`:"Kost gelijk"}</strong></>}</div></article>)}</div>
     <div className="modal-actions"><span className="modal-note">Sleep een bronpost ook rechtstreeks naar een hoofdstuk wanneer dit venster gesloten is.</span><button className="secondary" onClick={onClose}>Sluiten</button></div>
+  </div></div>;
+}
+
+function CalculationVersionCompareDialog({ calculation, versions, onClose }: { calculation: Calculation; versions: CalculationVersion[]; onClose: () => void }) {
+  const orderedVersions = useMemo(() => [...versions].sort((left,right)=>left.version-right.version),[versions]);
+  const [beforeKey,setBeforeKey] = useState(orderedVersions.at(-1)?.id ?? "current");
+  const [afterKey,setAfterKey] = useState("current");
+  const [query,setQuery] = useState("");
+  const [differencesOnly,setDifferencesOnly] = useState(true);
+  const options = useMemo(() => [
+    ...orderedVersions.map(version=>({key:version.id,label:`V${version.version} · ${version.label}`,detail:`${dateTime(version.createdAt)} · ${version.createdBy}`,calculation:version.snapshot})),
+    {key:"current",label:"Actuele stand",detail:`Laatst gewijzigd ${dateTime(calculation.updatedAt)}`,calculation},
+  ],[calculation,orderedVersions]);
+  const beforeOption = options.find(option=>option.key===beforeKey) ?? options[0];
+  const afterOption = options.find(option=>option.key===afterKey) ?? options.at(-1)!;
+  const comparison = useMemo(()=>compareCalculationSnapshots(beforeOption.calculation,afterOption.calculation),[afterOption.calculation,beforeOption.calculation]);
+  const visibleRows = comparison.rows.filter(row => {
+    if (differencesOnly && row.status === "Gelijk") return false;
+    const search = `${row.code} ${row.before?.description ?? ""} ${row.after?.description ?? ""} ${row.beforeChapter} ${row.afterChapter} ${row.changedFields.join(" ")}`.toLocaleLowerCase();
+    return search.includes(query.trim().toLocaleLowerCase());
+  });
+  const signedMoney = (value:number) => `${value>0?"+":value<0?"−":""}${money(Math.abs(value))}`;
+  const itemSide = (item:BoqItem|undefined,chapter:string,quantity:number,itemUnitCost:number,total:number) => item ? <div><strong>{item.code} · {item.description}</strong><span>{number(quantity)} {item.unit} · {money(itemUnitCost)}/{item.unit}</span><small>{chapter}</small><em>{money(total)}</em></div> : <div className="version-missing">Niet aanwezig</div>;
+  return <div className="modal-backdrop compare-backdrop"><div className="modal calculation-version-compare-dialog">
+    <div className="modal-head"><div><p className="eyebrow">Momentopnamen naast elkaar</p><h2>Versies van {calculation.number} vergelijken</h2><span>Read-only vergelijking op postcode, prijsopbouw en calculatietotalen</span></div><button className="icon-button" onClick={onClose} aria-label="Sluiten"><X size={20}/></button></div>
+    <div className="version-compare-selectors">
+      <label>Basisversie<select aria-label="Basisversie" value={beforeKey} onChange={event=>setBeforeKey(event.target.value)}>{options.map(option=><option key={option.key} value={option.key} disabled={option.key===afterKey}>{option.label}</option>)}</select><small>{beforeOption.detail}</small></label>
+      <button type="button" className="secondary" aria-label="Versies omwisselen" onClick={()=>{setBeforeKey(afterKey);setAfterKey(beforeKey)}}><GitCompareArrows size={16}/>Omwisselen</button>
+      <label>Vergelijken met<select aria-label="Doelversie" value={afterKey} onChange={event=>setAfterKey(event.target.value)}>{options.map(option=><option key={option.key} value={option.key} disabled={option.key===beforeKey}>{option.label}</option>)}</select><small>{afterOption.detail}</small></label>
+    </div>
+    <div className="version-compare-summary">
+      <span>Directe kost basis<strong>{money(comparison.beforeDirectCost)}</strong><small>{beforeOption.label}</small></span>
+      <span>Directe kost doel<strong>{money(comparison.afterDirectCost)}</strong><small>{afterOption.label}</small></span>
+      <span>Verschil directe kost<strong className={comparison.directCostDifference>0?"danger-text":comparison.directCostDifference<0?"success-text":""}>{signedMoney(comparison.directCostDifference)}</strong><small>Doel minus basis</small></span>
+      <span>Verschil verkoopwaarde<strong className={comparison.sellingTotalDifference>0?"danger-text":comparison.sellingTotalDifference<0?"success-text":""}>{signedMoney(comparison.sellingTotalDifference)}</strong><small>{money(comparison.beforeSellingTotal)} → {money(comparison.afterSellingTotal)}</small></span>
+      <span>Postverschillen<strong>{comparison.added+comparison.removed+comparison.changed}</strong><small>{comparison.added} toegevoegd · {comparison.removed} verwijderd · {comparison.changed} gewijzigd</small></span>
+    </div>
+    {comparison.pricingChanges.length > 0 && <div className="version-pricing-changes"><strong>Gewijzigde calculatiepercentages</strong>{comparison.pricingChanges.map(change=><span key={change.field}>{change.label}<b>{number(change.before)} → {number(change.after)}{change.field!=="roundingStep"?"%":""}</b></span>)}</div>}
+    <div className="version-compare-toolbar"><label className="workbench-search"><Search size={15}/><input aria-label="Zoeken in versieverschillen" value={query} onChange={event=>setQuery(event.target.value)} placeholder="Zoek code, omschrijving of hoofdstuk"/></label><label className="version-difference-toggle"><input type="checkbox" checked={differencesOnly} onChange={event=>setDifferencesOnly(event.target.checked)}/>Alleen verschillen</label><span>{visibleRows.length} van {comparison.rows.length} posten</span></div>
+    <div className="version-compare-grid-head"><strong>{beforeOption.label}</strong><strong>{afterOption.label}</strong><span>Wijziging</span></div>
+    <div className="version-compare-grid-body">{visibleRows.map(row=><article key={row.code} className={`status-${row.status.toLocaleLowerCase()}`}>
+      {itemSide(row.before,row.beforeChapter,row.beforeQuantity,row.beforeUnitCost,row.beforeTotal)}
+      {itemSide(row.after,row.afterChapter,row.afterQuantity,row.afterUnitCost,row.afterTotal)}
+      <div><Badge text={row.status}/><strong className={row.totalDifference>0?"danger-text":row.totalDifference<0?"success-text":""}>{signedMoney(row.totalDifference)}</strong><small>regelverschil</small><p>{row.changedFields.map(field=><span key={field}>{field}</span>)}</p></div>
+    </article>)}{!visibleRows.length&&<div className="dossier-empty">Geen posten voldoen aan deze verschilfilter.</div>}</div>
+    <div className="modal-actions"><span className="modal-note"><ShieldCheck size={14}/>Momentopnamen blijven onveranderlijk; deze vergelijking wijzigt geen calculatiegegevens.</span><button className="secondary" onClick={onClose}>Sluiten</button></div>
   </div></div>;
 }
 

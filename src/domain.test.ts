@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { autoSchedulePlanningActivities, boqPriceBreakdown, bulkBoqPriceAdjustmentPreview, cashFlowEntries, cashFlowPeriods, class8CalculationTemplates, costLibraryMatchesScope, criticalPathActivityIds, criticalPathAnalysis, effectiveBoqValues, normalizeTenderDossier, peppolOperations, planningConflicts, planningTimelineRange, postCalculationAnalysis, qhseAlerts, qhseCertificateStatus, sellingTotal, unitConversionFactor, unitCost, type BoqItem, type BouwFlowState, type Calculation, type CostLibrary, type PeppolDelivery, type Project, type SalesInvoice } from './domain'
+import { autoSchedulePlanningActivities, boqPriceBreakdown, bulkBoqPriceAdjustmentPreview, cashFlowEntries, cashFlowPeriods, class8CalculationTemplates, compareCalculationSnapshots, costLibraryMatchesScope, criticalPathActivityIds, criticalPathAnalysis, effectiveBoqValues, normalizeTenderDossier, peppolOperations, planningConflicts, planningTimelineRange, postCalculationAnalysis, qhseAlerts, qhseCertificateStatus, sellingTotal, unitConversionFactor, unitCost, type BoqItem, type BouwFlowState, type Calculation, type CostLibrary, type PeppolDelivery, type Project, type SalesInvoice } from './domain'
 
 const project = { id: 'project-1', number: 'PRJ-001', name: 'Testwerf' } as Project
 
@@ -90,6 +90,35 @@ describe('geavanceerde klasse-8-calculatie', () => {
       const codes = template.chapters.flatMap(chapter => chapter.items.map(item => item.code))
       expect(new Set(codes).size).toBe(codes.length)
     }
+  })
+})
+
+describe('calculatieversies vergelijken', () => {
+  const base = { id:'calc-version',number:'CAL-V',opportunityId:'opp-1',status:'In opmaak',overheadPct:5,riskPct:2,marginPct:8,chapters:[{id:'chapter-a',code:'01',name:'Ruwbouw',sortOrder:0}],items:[
+    {id:'old-a',chapterId:'chapter-a',code:'01.01',description:'Betonwand',quantity:10,unit:'m²',labor:20,material:80,equipment:0,subcontracting:0},
+    {id:'old-b',chapterId:'chapter-a',code:'01.02',description:'Te verwijderen',quantity:2,unit:'st',labor:50,material:0,equipment:0,subcontracting:0},
+  ],updatedAt:'2027-01-01'} satisfies Calculation
+
+  it('onderscheidt toegevoegde, verwijderde en gewijzigde posten en rekent delta’s door', () => {
+    const current = { ...structuredClone(base), overheadPct:7, chapters:[...base.chapters,{id:'chapter-b',code:'02',name:'Afwerking',sortOrder:1}], items:[
+      {...base.items[0],id:'new-a',chapterId:'chapter-b',quantity:12,material:90},
+      {id:'new-c',chapterId:'chapter-b',code:'02.01',description:'Nieuwe deur',quantity:1,unit:'st',labor:100,material:400,equipment:0,subcontracting:0},
+    ], updatedAt:'2027-02-01' } satisfies Calculation
+    const comparison = compareCalculationSnapshots(base,current)
+
+    expect(comparison).toMatchObject({ added:1,removed:1,changed:1,unchanged:0 })
+    expect(comparison.rows.find(row=>row.code==='01.01')).toMatchObject({status:'Gewijzigd',changedFields:expect.arrayContaining(['Hoofdstuk','Hoeveelheid','Eenheidsprijs'])})
+    expect(comparison.rows.find(row=>row.code==='01.02')?.status).toBe('Verwijderd')
+    expect(comparison.rows.find(row=>row.code==='02.01')?.status).toBe('Toegevoegd')
+    expect(comparison.pricingChanges).toContainEqual({field:'overheadPct',label:'Algemene kosten',before:5,after:7,difference:2})
+    expect(comparison.directCostDifference).toBe(720)
+    expect(comparison.sellingTotalDifference).toBeGreaterThan(comparison.directCostDifference)
+  })
+
+  it('rapporteert identieke momentopnames als gelijk', () => {
+    const comparison = compareCalculationSnapshots(base,structuredClone(base))
+    expect(comparison).toMatchObject({added:0,removed:0,changed:0,unchanged:2,directCostDifference:0,sellingTotalDifference:0,pricingChanges:[]})
+    expect(comparison.rows.every(row=>row.status==='Gelijk')).toBe(true)
   })
 })
 
