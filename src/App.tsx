@@ -4224,6 +4224,12 @@ const bimDemoElements: BimModelElement[] = [
 const bimCategories = ["Wanden","Vloeren","Kolommen","Balken","Ramen","Deuren","Daken","Trappen","Installaties","Overig"] as BimElementCategory[];
 const bimCategoryCode: Record<BimElementCategory,string> = { Wanden:"21.10", Vloeren:"22.10", Kolommen:"23.10", Balken:"23.20", Ramen:"31.10", Deuren:"32.10", Daken:"27.10", Trappen:"24.10", Installaties:"60.10", Overig:"90.10" };
 const bimUnitCosts: Record<BimElementCategory,number> = { Wanden:178,Vloeren:94,Kolommen:890,Balken:1120,Ramen:1280,Deuren:2460,Daken:132,Trappen:4850,Installaties:650,Overig:125 };
+const bimProductionTestModels = [
+  { label:"Snelle rooktest", detail:"IFC4 · wand, opening en raam · 12 KB", href:"https://raw.githubusercontent.com/buildingSMART/Sample-Test-Files/main/IFC%204.0.2.1%20(IFC%204)/ISO%20Spec%20-%20ReferenceView_V1.2/wall-with-opening-and-window.ifc" },
+  { label:"Architectuurmodel", detail:"IFC4 · volledig gebouwmodel · 220 KB", href:"https://raw.githubusercontent.com/buildingSMART/Sample-Test-Files/main/IFC%204.0.2.1%20(IFC%204)/PCERT-Sample-Scene/Building-Architecture.ifc" },
+  { label:"Constructiemodel", detail:"IFC4 · kolommen, balken en platen · 290 KB", href:"https://raw.githubusercontent.com/buildingSMART/Sample-Test-Files/main/IFC%204.0.2.1%20(IFC%204)/PCERT-Sample-Scene/Building-Structural.ifc" },
+  { label:"Inframodel weg", detail:"IFC4.3 · weg- en terreingeometrie · 407 KB", href:"https://raw.githubusercontent.com/buildingSMART/Sample-Test-Files/main/IFC%204.3.2.0%20(IFC4X3_ADD2)/PCERT-Sample-Scene/Infra-Road.ifc" },
+] as const;
 
 function BimCalculationWorkspace({ calculation, actions, onClose, onAdded }: { calculation: Calculation; actions: ReturnType<typeof useBouwFlowStore>["actions"]; onClose: () => void; onAdded: (count:number) => void }) {
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -4320,6 +4326,15 @@ function BimCalculationWorkspace({ calculation, actions, onClose, onAdded }: { c
         <div><p className="eyebrow">5D BIM-calculatie</p><h2>{modelName}</h2><span>{modelFormat} · {number(importCount)} objecten · gekoppeld aan {calculation.number}</span></div>
         <div className="bim-header-actions">
           <input ref={fileInputRef} type="file" hidden accept=".ifc" onChange={event=>void importModel(event.target.files?.[0])}/>
+          <details className="bim-testdata-menu">
+            <summary><Download size={15}/>IFC-testdata</summary>
+            <div>
+              <strong>Geverifieerde proefmodellen</strong>
+              <small>Download een bestand en importeer het hiernaast. Bron: buildingSMART, CC BY 4.0.</small>
+              {bimProductionTestModels.map(model=><a key={model.href} href={model.href} target="_blank" rel="noreferrer"><span>{model.label}<small>{model.detail}</small></span><ExternalLink size={14}/></a>)}
+              <a className="bim-testdata-guide" href="https://github.com/Boskes/BouwFlow-MVP/blob/main/docs/BIM_PRODUCTION_TESTING.md" target="_blank" rel="noreferrer"><span>Volledig testplan<small>Checks voor selectie, geometrie en calculatie</small></span><ExternalLink size={14}/></a>
+            </div>
+          </details>
           <button className="secondary" disabled={isImporting} onClick={()=>fileInputRef.current?.click()}><Upload size={15}/>{isImporting?`${ifcProgress}% verwerken`:(ifcFile?"Ander IFC-model":"IFC-model importeren")}</button>
           <button className="icon-button" aria-label="BIM-werkruimte sluiten" onClick={onClose}><X size={20}/></button>
         </div>
