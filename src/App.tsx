@@ -1085,6 +1085,8 @@ function DocumentInlineViewer({ document, actions, onOpenFull }: { document: Pro
   const [versionId, setVersionId] = useState(document.currentVersionId);
   const [source, setSource] = useState<{ url: string; text?: string }>();
   const [loading, setLoading] = useState(false);
+  const downloadVersionRef = useRef(actions.downloadDocumentVersion);
+  downloadVersionRef.current = actions.downloadDocumentVersion;
   const version = document.versions.find((item) => item.id === versionId) ?? document.versions[0];
   useEffect(() => { setVersionId(document.currentVersionId); }, [document.currentVersionId, document.id]);
   useEffect(() => {
@@ -1093,13 +1095,13 @@ function DocumentInlineViewer({ document, actions, onOpenFull }: { document: Pro
     if (!version) return;
     setLoading(true);
     setSource(undefined);
-    void actions.downloadDocumentVersion(version.id).then(async (blob) => {
+    void downloadVersionRef.current(version.id).then(async (blob) => {
       if (!active || !blob) return;
       objectUrl = URL.createObjectURL(blob);
       setSource({ url: objectUrl, text: blob.type.startsWith("text/") ? await blob.text() : undefined });
     }).finally(() => { if (active) setLoading(false); });
     return () => { active = false; if (objectUrl) URL.revokeObjectURL(objectUrl); };
-  }, [actions, version]);
+  }, [version]);
   const preview = () => {
     if (loading) return <div className="dossier-document-preview-state"><RotateCcw size={20}/><span>Document laden…</span></div>;
     if (!version || !source) return <div className="dossier-document-preview-state"><FileText size={32}/><strong>{version?.fileName ?? "Geen versie"}</strong><span>Open het bestand in de volledige viewer.</span></div>;
@@ -15714,13 +15716,15 @@ function DocumentViewerDialog({ document, initialVersionId, loadVersion, onClose
   const [sources, setSources] = useState<Record<string, { url: string; text?: string }>>({});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const loadVersionRef = useRef(loadVersion);
+  loadVersionRef.current = loadVersion;
   const requestedIds = useMemo(() => [versionId, compareVersionId].filter(Boolean), [versionId, compareVersionId]);
   useEffect(() => {
     let active = true;
     setLoading(true);
     setError("");
     Promise.all(requestedIds.map(async (id) => {
-      const blob = await loadVersion(id);
+      const blob = await loadVersionRef.current(id);
       if (!blob) throw new Error("Bestand kon niet worden geladen.");
       return [id, { url: URL.createObjectURL(blob), text: blob.type.startsWith("text/") ? await blob.text() : undefined }] as const;
     })).then((entries) => {
@@ -15728,7 +15732,7 @@ function DocumentViewerDialog({ document, initialVersionId, loadVersion, onClose
       setSources((previous) => { Object.values(previous).forEach((source) => URL.revokeObjectURL(source.url)); return Object.fromEntries(entries); });
     }).catch((reason: unknown) => { if (active) setError(reason instanceof Error ? reason.message : "Bestand kon niet worden geladen."); }).finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
-  }, [loadVersion, requestedIds]);
+  }, [requestedIds]);
   useEffect(() => () => { Object.values(sources).forEach((source) => URL.revokeObjectURL(source.url)); }, [sources]);
   const pane = (id: string) => {
     const version = document.versions.find((item) => item.id === id);
