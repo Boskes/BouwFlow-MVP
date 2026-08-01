@@ -1454,9 +1454,12 @@ describe('BouwFlow API', () => {
     expect(siteManager.json()).toMatchObject({
       currentUserId: productionDemoUserIds.siteManager,
       companyUsers: [expect.objectContaining({ role: 'Werfleider' })],
-      projects: [expect.objectContaining({ number: 'PRJ-OWV-RO-DEMO' })],
+      projects: expect.arrayContaining([
+        expect.objectContaining({ number: 'PRJ-OWV-RO-DEMO' }),
+        expect.objectContaining({ number: 'PRJ-RING-NOORD-DEMO' }),
+      ]),
     })
-    const siteProject = siteManager.json().projects[0]
+    const siteProject = siteManager.json().projects.find((project: { number: string }) => project.number === 'PRJ-OWV-RO-DEMO')
     const activeSiteMutation = await app.inject({
       method: 'POST',
       url: `/api/projects/${siteProject.id}/daily-reports`,

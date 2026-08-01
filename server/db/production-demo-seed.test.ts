@@ -32,7 +32,7 @@ describe('production demo seed', () => {
   it('vult de lege BouwFlow-tenant met de klasse 8-calculatie en een project', async () => {
     await expect(ensureProductionDemoData(pool, adminContext)).resolves.toBe(true)
 
-    const [calculations, calculationVersions, chapters, items, projects, reports, costs, changes, forecasts, pipeline, users, documents, quotes, statements, invoices, orders, certificates, blueprint, tender] = await Promise.all([
+    const [calculations, calculationVersions, chapters, items, projects, reports, costs, changes, forecasts, pipeline, users, documents, quotes, statements, invoices, orders, certificates, blueprint, tender, resourceProject] = await Promise.all([
       pool.query<{ count: string }>('SELECT count(*)::text AS count FROM calculations WHERE tenant_id=$1', [BOUWFLOW_DEMO_TENANT_ID]),
       pool.query<{ version: number; label: string; snapshot: { items: unknown[] } }>('SELECT version,label,snapshot FROM calculation_versions WHERE tenant_id=$1 ORDER BY version', [BOUWFLOW_DEMO_TENANT_ID]),
       pool.query<{ count: string }>('SELECT count(*)::text AS count FROM boq_chapters WHERE tenant_id=$1', [BOUWFLOW_DEMO_TENANT_ID]),
@@ -52,9 +52,10 @@ describe('production demo seed', () => {
       pool.query<{ count: string }>('SELECT count(*)::text AS count FROM qhse_certificates WHERE tenant_id=$1', [BOUWFLOW_DEMO_TENANT_ID]),
       pool.query<{ employees: unknown; subcontractors: unknown; work_tickets: unknown; project_contracts: unknown }>('SELECT employees,subcontractors,work_tickets,project_contracts FROM blueprint_state WHERE tenant_id=$1', [BOUWFLOW_DEMO_TENANT_ID]),
       pool.query<{ tender: unknown }>('SELECT tender FROM opportunities WHERE tenant_id=$1 AND id=$2', [BOUWFLOW_DEMO_TENANT_ID, '20000000-0000-4000-8000-000000000002']),
+      pool.query<{ number: string; planning: { activities: Array<{ resourceAssignments: Array<{ resourceName: string; allocationPct: number }> }> } }>("SELECT number,planning FROM projects WHERE tenant_id=$1 AND number='PRJ-RING-NOORD-DEMO'", [BOUWFLOW_DEMO_TENANT_ID]),
     ])
 
-    expect(calculations.rows[0].count).toBe('1')
+    expect(calculations.rows[0].count).toBe('2')
     expect(calculationVersions.rows).toEqual([
       expect.objectContaining({version:1,label:'Tenderbasis',snapshot:expect.objectContaining({items:expect.any(Array)})}),
       expect.objectContaining({version:2,label:'Inschrijvingsversie',snapshot:expect.objectContaining({items:expect.any(Array)})}),
@@ -63,12 +64,12 @@ describe('production demo seed', () => {
     expect(calculationVersions.rows[1].snapshot.items.length).toBe(1999)
     expect(chapters.rows[0].count).toBe('180')
     expect(items.rows[0].count).toBe('2000')
-    expect(projects.rows[0].count).toBe('1')
+    expect(projects.rows[0].count).toBe('2')
     expect(reports.rows[0].count).toBe('3')
     expect(costs.rows[0].count).toBe('7')
     expect(changes.rows[0].count).toBe('2')
     expect(forecasts.rows[0].count).toBe('2')
-    expect(pipeline.rows[0].count).toBe('4')
+    expect(pipeline.rows[0].count).toBe('5')
     expect(users.rows[0].count).toBe('10')
     expect(documents.rows[0].count).toBe('5')
     expect(quotes.rows[0].count).toBe('1')
@@ -86,6 +87,13 @@ describe('production demo seed', () => {
       submissionPlan: expect.objectContaining({ ownerEmployeeId: expect.any(String), reviewerEmployeeId: expect.any(String) }),
       requiredDocumentIds: expect.any(Array),
       siteVisits: expect.any(Array),
+    })
+    expect(resourceProject.rows[0]).toMatchObject({
+      number: 'PRJ-RING-NOORD-DEMO',
+      planning: { activities: expect.arrayContaining([
+        expect.objectContaining({ resourceAssignments: [expect.objectContaining({ resourceName: 'Ploeg Rechteroever', allocationPct: 100 })] }),
+        expect.objectContaining({ resourceAssignments: [expect.objectContaining({ resourceName: 'Rupskraan 35t', allocationPct: 100 })] }),
+      ]) },
     })
   }, 15_000)
 

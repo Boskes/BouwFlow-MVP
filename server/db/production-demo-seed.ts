@@ -15,6 +15,7 @@ const DEMO_ORGANIZATION_ID = '20000000-0000-4000-8000-000000000001'
 const DEMO_OPPORTUNITY_ID = '20000000-0000-4000-8000-000000000002'
 const DEMO_CALCULATION_ID = '20000000-0000-4000-8000-000000000003'
 const DEMO_PROJECT_ID = '20000000-0000-4000-8000-000000000004'
+const DEMO_RESOURCE_CONFLICT_PROJECT_ID = '20000000-0000-4000-8000-000000000011'
 const DEFAULT_COST_LIBRARY_VERSION_ID = '00000000-0000-4000-8000-000000000102'
 const DEMO_EXPANSION_REPORT_ID = '20000000-0000-4000-8000-000000000010'
 
@@ -408,6 +409,116 @@ async function seedDemoProjectExpansion(client: PoolClient, tenantId: string) {
   return true
 }
 
+async function seedResourceConflictProject(client: PoolClient, tenantId: string) {
+  const primaryProject = await client.query<{ id: string }>(
+    'SELECT id FROM projects WHERE tenant_id=$1 AND id=$2',
+    [tenantId, DEMO_PROJECT_ID],
+  )
+  if (!primaryProject.rowCount) return false
+  const existingProject = await client.query<{ id: string }>(
+    'SELECT id FROM projects WHERE tenant_id=$1 AND id=$2',
+    [tenantId, DEMO_RESOURCE_CONFLICT_PROJECT_ID],
+  )
+  if (existingProject.rowCount) {
+    await client.query(
+      `INSERT INTO user_project_access (tenant_id,user_id,project_id)
+       SELECT tenant_id,id,$2 FROM users WHERE tenant_id=$1 AND all_projects=false
+       ON CONFLICT DO NOTHING`,
+      [tenantId, DEMO_RESOURCE_CONFLICT_PROJECT_ID],
+    )
+    return false
+  }
+
+  const workPackageId = deterministicUuid('work-package', 'ring-noord-capacity')
+  const crewId = deterministicUuid('crew', 'rechteroever')
+  const opportunityId = deterministicUuid('opportunity', 'ring-noord-capacity')
+  const calculationId = deterministicUuid('calculation', 'ring-noord-capacity')
+  const activities = [
+    {
+      id: deterministicUuid('planning-activity', 'ring-noord-crew-conflict'),
+      workPackageId,
+      name: 'Voorbereidende grondwerken noordelijke ring',
+      startDate: '2026-09-05',
+      endDate: '2026-09-12',
+      progress: 35,
+      predecessorIds: [],
+      dependencies: [],
+      milestone: false,
+      responsible: 'Wouter Peeters',
+      crewSize: 8,
+      weatherSensitive: true,
+      resourceAssignments: [{ id: deterministicUuid('planning-resource', 'ring-noord-crew'), crewId, resourceType: 'Ploeg', resourceName: 'Ploeg Rechteroever', allocationPct: 100 }],
+      baselineStartDate: '2026-09-05',
+      baselineEndDate: '2026-09-12',
+    },
+    {
+      id: deterministicUuid('planning-activity', 'ring-noord-crane-conflict'),
+      workPackageId,
+      name: 'Tijdelijke bouwweg en grondverzet',
+      startDate: '2028-01-15',
+      endDate: '2028-02-15',
+      progress: 0,
+      predecessorIds: [],
+      dependencies: [],
+      milestone: false,
+      responsible: 'Lena Vermeulen',
+      crewSize: 6,
+      weatherSensitive: true,
+      resourceAssignments: [{ id: deterministicUuid('planning-resource', 'ring-noord-crane'), resourceType: 'Materieel', resourceName: 'Rupskraan 35t', allocationPct: 100 }],
+      baselineStartDate: '2028-01-15',
+      baselineEndDate: '2028-02-15',
+    },
+  ]
+  await client.query(
+    `INSERT INTO opportunities
+      (tenant_id,id,project_number,title,organization_id,legal_entity_id,branch_id,location,deadline,estimated_value,probability,stage,recognition,tender)
+     VALUES ($1,$2,'RING-CAP-DEMO','Ringverbinding Noord - capaciteitstest',$3,$4,$5,'Antwerpen-Noord','2026-08-20',48500000,100,'Gewonnen','C - Klasse 7',$6)
+     ON CONFLICT (tenant_id,id) DO NOTHING`,
+    [tenantId, opportunityId, DEMO_ORGANIZATION_ID, DEMO_LEGAL_ENTITY_ID, DEMO_BRANCH_ID, JSON.stringify({ status: 'Gegund', notes: 'Proefdossier voor cross-project resourceplanning.' })],
+  )
+  await client.query(
+    `INSERT INTO calculations
+      (tenant_id,id,number,opportunity_id,status,overhead_pct,risk_pct,margin_pct,site_overhead_pct,escalation_pct,discount_pct,rounding_step,updated_at)
+     VALUES ($1,$2,'CAL-RING-CAP-DEMO',$3,'Goedgekeurd',8,3,6.8,5,0,0,1000,'2026-08-20T09:00:00.000Z')
+     ON CONFLICT (tenant_id,id) DO NOTHING`,
+    [tenantId, calculationId, opportunityId],
+  )
+  const inserted = await client.query(
+    `INSERT INTO projects
+      (tenant_id,id,number,name,organization_id,legal_entity_id,branch_id,source_calculation_id,contract_value,cost_budget,margin_pct,progress,status,handover,work_packages,planning)
+     VALUES ($1,$2,'PRJ-RING-NOORD-DEMO','Ringverbinding Noord - capaciteitstest',$3,$4,$5,$6,48500000,45200000,6.8,12,'Risico',$7,$8,$9)
+     ON CONFLICT (tenant_id,id) DO NOTHING
+     RETURNING id`,
+    [
+      tenantId,
+      DEMO_RESOURCE_CONFLICT_PROJECT_ID,
+      DEMO_ORGANIZATION_ID,
+      DEMO_LEGAL_ENTITY_ID,
+      DEMO_BRANCH_ID,
+      calculationId,
+      JSON.stringify({
+        status: 'Aanvaard',
+        projectManager: 'Lena Vermeulen',
+        plannedStart: '2026-09-05',
+        plannedEnd: '2028-04-30',
+        notes: 'Productieproefproject voor het testen van resourceconflicten over meerdere projectplanningen.',
+        risks: ['Ploeg Rechteroever is gelijktijdig op Oosterweel ingepland', 'Rupskraan 35t heeft een overlappende reservering'],
+        checklist: { scopeReviewed: true, budgetReviewed: true, contractReviewed: true, documentsTransferred: true, risksReviewed: true, kickoffPlanned: true },
+        acceptedAt: '2026-08-20T09:00:00.000Z',
+      }),
+      JSON.stringify([{ id: workPackageId, code: '1', name: 'Grondwerken en tijdelijke infrastructuur', budget: 12_800_000, plannedHours: 28_400, status: 'Klaar voor planning' }]),
+      JSON.stringify({ status: 'Baseline', baselineVersion: 1, activities, updatedAt: '2026-08-20T09:00:00.000Z', baselineHistory: [], scenarios: [] }),
+    ],
+  )
+  await client.query(
+    `INSERT INTO user_project_access (tenant_id,user_id,project_id)
+     SELECT tenant_id,id,$2 FROM users WHERE tenant_id=$1 AND all_projects=false
+     ON CONFLICT DO NOTHING`,
+    [tenantId, DEMO_RESOURCE_CONFLICT_PROJECT_ID],
+  )
+  return Boolean(inserted.rowCount)
+}
+
 export async function ensureProductionDemoData(pool: Pool, context: RequestContext, storage?: ObjectStorage) {
   if (context.tenantId !== BOUWFLOW_DEMO_TENANT_ID || !context.roles.includes('Administrator')) return false
   if (initializedTenants.has(context.tenantId)) return false
@@ -431,11 +542,12 @@ export async function ensureProductionDemoData(pool: Pool, context: RequestConte
     if (isEmpty) await seedEmptyTenant(client, context.tenantId)
     const expanded = await seedDemoProjectExpansion(client, context.tenantId)
     const fullEnvironment = await seedFullProductionDemo(client, context.tenantId, storage)
+    const resourceConflictProject = await seedResourceConflictProject(client, context.tenantId)
     const calculationVersions = await seedDemoCalculationVersions(client, context.tenantId)
-    if (isEmpty || expanded || fullEnvironment || calculationVersions) await client.query('UPDATE tenants SET data_revision=data_revision+1 WHERE id=$1', [context.tenantId])
+    if (isEmpty || expanded || fullEnvironment || resourceConflictProject || calculationVersions) await client.query('UPDATE tenants SET data_revision=data_revision+1 WHERE id=$1', [context.tenantId])
     await client.query('COMMIT')
     initializedTenants.add(context.tenantId)
-    return isEmpty || expanded || fullEnvironment || calculationVersions
+    return isEmpty || expanded || fullEnvironment || resourceConflictProject || calculationVersions
   } catch (error) {
     await client.query('ROLLBACK')
     throw error

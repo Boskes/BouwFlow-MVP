@@ -6930,6 +6930,8 @@ function ProjectPlanningDialog({
   const [resourceSearch, setResourceSearch] = useState("");
   const [dragOverActivityId, setDragOverActivityId] = useState<string>();
   const [selectedResourceKey, setSelectedResourceKey] = useState<string>();
+  const [openedConflictId, setOpenedConflictId] = useState<string>();
+  const [openedConflictSnapshot, setOpenedConflictSnapshot] = useState<PlanningConflict>();
   const [showCriticalPath, setShowCriticalPath] = useState(true);
   const [showBaseline, setShowBaseline] = useState(true);
   const [showProblemsOnly, setShowProblemsOnly] = useState(false);
@@ -7126,7 +7128,39 @@ function ProjectPlanningDialog({
     activitiesRef.current = next;
     setActiveScenarioId(scenario.id);
   };
-  const draftConflicts = useMemo(()=>planningConflicts(projects.map(item=>item.id===project.id?{...item,planning:{...item.planning,activities}}:item),employees,employeeAbsences,crews).filter(conflict=>conflict.projectIds.includes(project.id)),[activities,crews,employeeAbsences,employees,project.id,projects]);
+  const draftProjects = useMemo(()=>projects.map(item=>item.id===project.id?{...item,planning:{...item.planning,activities}}:item),[activities,project.id,projects]);
+  const draftConflicts = useMemo(()=>planningConflicts(draftProjects,employees,employeeAbsences,crews).filter(conflict=>conflict.projectIds.includes(project.id)),[crews,draftProjects,employeeAbsences,employees,project.id]);
+  const openedConflict = openedConflictId ? draftConflicts.find(conflict => conflict.id === openedConflictId) ?? openedConflictSnapshot : undefined;
+  const openPlanningConflict = (conflict: PlanningConflict) => {
+    setOpenedConflictId(conflict.id);
+    setOpenedConflictSnapshot(conflict);
+  };
+  const updateConflictAssignment = async (projectId: string, activityId: string, assignmentId: string, allocationPct?: number) => {
+    const updateAssignments = (source: PlanningActivity[]) => source.map(activity => activity.id !== activityId ? activity : {
+      ...activity,
+      resourceAssignments: allocationPct === undefined
+        ? activity.resourceAssignments.filter(assignment => assignment.id !== assignmentId)
+        : activity.resourceAssignments.map(assignment => assignment.id === assignmentId ? { ...assignment, allocationPct } : assignment),
+    });
+    if (projectId === project.id) {
+      applyActivityChange(updateAssignments);
+    } else {
+      const targetProject = projects.find(item => item.id === projectId);
+      if (!targetProject) throw new Error("De andere projectplanning kon niet meer worden gevonden.");
+      await actions.updateProjectPlanning(projectId, {
+        activities: updateAssignments(targetProject.planning.activities),
+        scenarios: targetProject.planning.scenarios,
+        selectedScenarioId: targetProject.planning.selectedScenarioId,
+      });
+    }
+    setOpenedConflictSnapshot(current => {
+      if (!current?.usages) return current;
+      const usages = allocationPct === undefined
+        ? current.usages.filter(usage => !(usage.projectId === projectId && usage.activityId === activityId && usage.assignmentId === assignmentId))
+        : current.usages.map(usage => usage.projectId === projectId && usage.activityId === activityId && usage.assignmentId === assignmentId ? { ...usage, allocationPct } : usage);
+      return { ...current, usages, totalAllocationPct: usages.reduce((sum, usage) => sum + usage.allocationPct, 0) };
+    });
+  };
   const conflictActivityIds = new Set(draftConflicts.flatMap(conflict=>conflict.activityIds));
   const baselineVersions = useMemo<PlanningBaselineVersion[]>(() => {
     if (project.planning.baselineHistory?.length) return [...project.planning.baselineHistory].sort((a, b) => b.version - a.version);
@@ -7196,15 +7230,22 @@ function ProjectPlanningDialog({
     const startDate = addDays(timelineStart, index * 28);
     return { startDate, endDate: addDays(startDate, 27), label: new Intl.DateTimeFormat("nl-BE", { month: "short", year: "2-digit" }).format(new Date(`${startDate}T00:00:00Z`)) };
   });
+  const allPlanningUsages = draftProjects.flatMap(item => item.planning.activities.flatMap(activity => activity.resourceAssignments.map(assignment => ({ project: item, activity, assignment }))));
+  const resourceMatches = (resource: PlanningResourceCatalogItem, assignment: PlanningResourceAssignment) => resource.employeeId
+    ? assignment.employeeId === resource.employeeId || (assignment.resourceType === "Medewerker" && assignment.resourceName.toLocaleLowerCase() === resource.resourceName.toLocaleLowerCase())
+    : resource.crewId
+      ? assignment.crewId === resource.crewId || (assignment.resourceType === "Ploeg" && assignment.resourceName.toLocaleLowerCase() === resource.resourceName.toLocaleLowerCase())
+      : assignment.resourceType === resource.resourceType && assignment.resourceName.toLocaleLowerCase() === resource.resourceName.toLocaleLowerCase();
+  const peakAllocation = (resource: PlanningResourceCatalogItem, period: { startDate: string; endDate: string }) => {
+    const matching = allPlanningUsages.filter(usage => resourceMatches(resource, usage.assignment) && usage.activity.endDate >= period.startDate && usage.activity.startDate <= period.endDate);
+    const boundaries = [...new Set(matching.flatMap(usage => [usage.activity.startDate < period.startDate ? period.startDate : usage.activity.startDate, addDays(usage.activity.endDate > period.endDate ? period.endDate : usage.activity.endDate, 1)]))].sort();
+    return Math.max(0, ...boundaries.slice(0, -1).map(startDate => matching.filter(usage => usage.activity.startDate <= startDate && usage.activity.endDate >= startDate).reduce((sum, usage) => sum + usage.assignment.allocationPct, 0)));
+  };
   const capacityResources = resourceCatalog.slice(0, 10).map(resource => {
-    const allocations = capacityPeriods.map(period => activities.reduce((sum, activity) => {
-      if (activity.endDate < period.startDate || activity.startDate > period.endDate) return sum;
-      return sum + activity.resourceAssignments
-        .filter(item => item.resourceType === resource.resourceType && item.resourceName === resource.resourceName)
-        .reduce((allocation, item) => allocation + item.allocationPct, 0);
-    }, 0));
+    const allocations = capacityPeriods.map(period => peakAllocation(resource, period));
     const unavailable = capacityPeriods.map(period => Boolean(resource.employeeId && employeeAbsences.some(absence => absence.employeeId === resource.employeeId && absence.status === "Goedgekeurd" && absence.endDate >= period.startDate && absence.startDate <= period.endDate)));
-    return { resource, allocations, unavailable };
+    const capacityPct = resource.employeeId ? employees.find(employee => employee.id === resource.employeeId)?.employmentPct ?? 100 : 100;
+    return { resource, allocations, unavailable, capacityPct };
   });
   const zoomOrder = ["Dag","Week","Maand","Kwartaal","Alles"] as const;
   const zoomPixelsPerDay: Record<typeof zoomOrder[number],number> = {Dag:34,Week:15,Maand:6,Kwartaal:2.8,Alles:0};
@@ -7384,7 +7425,7 @@ function ProjectPlanningDialog({
                 <button type="button" disabled={!selectedActivityIds.size} onClick={()=>shiftActivities(selectedActivityIds,bulkShiftDays)}><ArrowUpRight size={14}/>Later</button>
                 <span>Gebruik Shift om een reeks te selecteren.</span>
               </section>
-              {draftConflicts.length>0&&<section className="planning-inline-conflicts"><div><AlertTriangle size={17}/><strong>{draftConflicts.length} planningswaarschuwingen</strong><span>Klik om de activiteit in de Gantt te openen en het conflict op te lossen.</span></div><div>{draftConflicts.slice(0,6).map(conflict=><button type="button" key={conflict.id} onClick={()=>{setShowProblemsOnly(false);setSelectedActivityIds(new Set(conflict.activityIds));if(conflict.activityIds[0])focusPlanningActivity(conflict.activityIds[0])}}><Badge text={conflict.severity}/><span>{conflict.resourceName} · {conflict.message}</span><small>Open conflict</small></button>)}</div></section>}
+              {draftConflicts.length>0&&<section className="planning-inline-conflicts"><div><AlertTriangle size={17}/><strong>{draftConflicts.length} planningswaarschuwingen</strong><span>Open een waarschuwing om alle betrokken activiteiten en projecten te bekijken en bij te sturen.</span></div><div>{draftConflicts.slice(0,6).map(conflict=><button type="button" key={conflict.id} onClick={()=>{setShowProblemsOnly(false);setSelectedActivityIds(new Set(conflict.activityIds));if(conflict.usages?.length)openPlanningConflict(conflict);else if(conflict.activityIds[0])focusPlanningActivity(conflict.activityIds[0])}}><Badge text={conflict.severity}/><span>{conflict.resourceName} · {conflict.message}</span><small>{conflict.usages?.length?`${conflict.projectIds.length} project${conflict.projectIds.length===1?"":"en"} bekijken`:"Open activiteit"}</small></button>)}</div></section>}
               <section className="resource-planner-card">
                 <div className="resource-planner-head">
                   <div><p className="eyebrow">Drag-and-drop</p><h3>Resourcebank</h3><span>Sleep een resource naar een Gantt-regel, of selecteer hem en klik daarna op de regel.</span></div>
@@ -7393,8 +7434,9 @@ function ProjectPlanningDialog({
                 <div className="resource-palette">
                   {resourceCatalog.map(resource => {
                     const conflicts = draftConflicts.filter(conflict => conflict.resourceName === resource.resourceName);
-                    const plannedPct = Math.max(0, ...activities.flatMap(activity => activity.resourceAssignments.filter(item => item.resourceType === resource.resourceType && item.resourceName === resource.resourceName).map(item => item.allocationPct)));
-                    const availability = Math.max(0, 100 - plannedPct);
+                    const plannedPct = peakAllocation(resource, { startDate: timelineStart, endDate: timelineEnd });
+                    const capacityPct = resource.employeeId ? employees.find(employee => employee.id === resource.employeeId)?.employmentPct ?? 100 : 100;
+                    const availability = Math.max(0, capacityPct - plannedPct);
                     return <button
                     type="button"
                     draggable
@@ -7561,12 +7603,17 @@ function ProjectPlanningDialog({
                 onClose={() => setShowInspector(false)}
                 onUpdate={patch => updateActivity(selectedActivity.id, patch)}
                 onDependenciesChange={dependencies => setActivityDependencies(selectedActivity.id, dependencies)}
+                onOpenConflict={openPlanningConflict}
               />}
               </div>
               {showCapacity && <PlanningCapacityHeatmap
                 periods={capacityPeriods}
                 resources={capacityResources}
-                onSelectResource={resourceName => setResourceSearch(resourceName)}
+                onSelectResource={(resourceName, period) => {
+                  setResourceSearch(resourceName);
+                  const conflict = draftConflicts.find(item => item.resourceName.toLocaleLowerCase() === resourceName.toLocaleLowerCase() && (!period || item.endDate >= period.startDate && item.startDate <= period.endDate));
+                  if (conflict?.usages?.length) openPlanningConflict(conflict);
+                }}
               />}
               <details className="planning-advanced-grid">
                 <summary><SlidersHorizontal size={15}/><span><strong>Geavanceerde detailplanning</strong><small>Open de volledige tabel voor bulkbewerkingen en technische afhankelijkheden.</small></span><ChevronDown size={15}/></summary>
@@ -7776,11 +7823,85 @@ function ProjectPlanningDialog({
                 </div>
               </div>
             </div>}
+            {openedConflict && <PlanningConflictDialog
+              conflict={openedConflict}
+              currentProjectId={project.id}
+              onClose={() => { setOpenedConflictId(undefined); setOpenedConflictSnapshot(undefined); }}
+              onFocusActivity={activityId => { setOpenedConflictId(undefined); setOpenedConflictSnapshot(undefined); focusPlanningActivity(activityId); }}
+              onUpdateAssignment={updateConflictAssignment}
+            />}
           </>
         )}
       </div>
     </div>
   );
+}
+
+function PlanningConflictDialog({
+  conflict,
+  currentProjectId,
+  onClose,
+  onFocusActivity,
+  onUpdateAssignment,
+}: {
+  conflict: PlanningConflict;
+  currentProjectId: string;
+  onClose: () => void;
+  onFocusActivity: (activityId: string) => void;
+  onUpdateAssignment: (projectId: string, activityId: string, assignmentId: string, allocationPct?: number) => Promise<void>;
+}) {
+  const usages = conflict.usages ?? [];
+  const [drafts, setDrafts] = useState<Record<string, number>>({});
+  const [savingKey, setSavingKey] = useState<string>();
+  const [updateError, setUpdateError] = useState("");
+  const totalAllocationPct = usages.reduce((sum, usage) => sum + usage.allocationPct, 0);
+  const capacityPct = conflict.capacityPct ?? 100;
+  const resolved = totalAllocationPct <= capacityPct;
+  const saveUsage = async (usage: NonNullable<PlanningConflict["usages"]>[number], allocationPct?: number) => {
+    const key = `${usage.projectId}:${usage.activityId}:${usage.assignmentId}`;
+    setSavingKey(key);
+    setUpdateError("");
+    try {
+      await onUpdateAssignment(usage.projectId, usage.activityId, usage.assignmentId, allocationPct);
+    } catch (cause) {
+      setUpdateError(cause instanceof Error ? cause.message : "De resourceboeking kon niet worden aangepast.");
+    } finally {
+      setSavingKey(undefined);
+    }
+  };
+  return <div className="planning-conflict-backdrop" role="presentation">
+    <section className="planning-conflict-dialog" role="dialog" aria-modal="true" aria-labelledby="planning-conflict-title">
+      <div className="modal-head">
+        <div><p className="eyebrow">Capaciteitsconflict over projecten</p><h2 id="planning-conflict-title">{conflict.resourceName}</h2><span>{date(conflict.startDate)} – {date(conflict.endDate)}</span></div>
+        <button type="button" className="icon-button" aria-label="Capaciteitsconflict sluiten" onClick={onClose}><X size={18}/></button>
+      </div>
+      <div className={`planning-conflict-meter ${resolved ? "resolved" : "over"}`}>
+        <div><strong>{totalAllocationPct}%</strong><span>gelijktijdig gepland</span></div>
+        <div><strong>{capacityPct}%</strong><span>beschikbare capaciteit</span></div>
+        <div><strong>{Math.max(0, totalAllocationPct - capacityPct)}%</strong><span>{resolved ? "overschrijding opgelost" : "overbezet"}</span></div>
+      </div>
+      <div className="planning-conflict-explanation"><AlertTriangle size={17}/><p><strong>{usages.length} boekingen in {new Set(usages.map(usage => usage.projectId)).size} project{new Set(usages.map(usage => usage.projectId)).size === 1 ? "" : "en"}</strong><span>Pas het percentage aan of verwijder een boeking. Wijzigingen in andere projecten worden onmiddellijk opgeslagen; wijzigingen in deze planning worden bewaard via “Wijzigingen opslaan”.</span></p></div>
+      <div className="planning-conflict-usages">
+        {usages.map(usage => {
+          const key = `${usage.projectId}:${usage.activityId}:${usage.assignmentId}`;
+          const isCurrentProject = usage.projectId === currentProjectId;
+          return <article key={key}>
+            <div className="planning-conflict-project"><Badge text={isCurrentProject ? "Deze planning" : "Ander project"}/><strong>{usage.projectNumber} · {usage.projectName}</strong><small>{usage.activityName}</small></div>
+            <div className="planning-conflict-dates"><span>Activiteit</span><strong>{date(usage.startDate)} – {date(usage.endDate)}</strong><small>Overlap: {date(conflict.startDate)} – {date(conflict.endDate)}</small></div>
+            <label>Inzet<span><input aria-label={`Inzet voor ${usage.activityName}`} type="number" min="1" max="100" value={drafts[key] ?? usage.allocationPct} onChange={event => setDrafts(current => ({ ...current, [key]: Math.max(1, Math.min(100, Number(event.target.value))) }))}/><b>%</b></span></label>
+            <div className="planning-conflict-actions">
+              {isCurrentProject && <button type="button" className="secondary" onClick={() => onFocusActivity(usage.activityId)}>Toon in Gantt</button>}
+              <button type="button" className="secondary" disabled={savingKey === key || (drafts[key] ?? usage.allocationPct) === usage.allocationPct} onClick={() => void saveUsage(usage, drafts[key] ?? usage.allocationPct)}>{savingKey === key ? "Opslaan…" : "Inzet opslaan"}</button>
+              <button type="button" className="icon-button danger" disabled={savingKey === key} aria-label={`Boeking voor ${usage.activityName} verwijderen`} onClick={() => void saveUsage(usage)}><Trash2 size={15}/></button>
+            </div>
+          </article>;
+        })}
+        {!usages.length && <p className="empty-state">De betrokken resourceboekingen zijn niet meer aanwezig. Het conflict is opgelost.</p>}
+      </div>
+      {updateError && <p className="startup-error"><AlertTriangle size={15}/>{updateError}</p>}
+      <div className="modal-actions"><span className="modal-note">De analyse omvat alle projectplanningen waartoe je toegang hebt.</span><button type="button" className="primary" onClick={onClose}>{resolved ? "Gereed" : "Sluiten"}</button></div>
+    </section>
+  </div>;
 }
 
 function PlanningActivityInspector({
@@ -7795,6 +7916,7 @@ function PlanningActivityInspector({
   onClose,
   onUpdate,
   onDependenciesChange,
+  onOpenConflict,
 }: {
   activity: PlanningActivity;
   activities: PlanningActivity[];
@@ -7807,6 +7929,7 @@ function PlanningActivityInspector({
   onClose: () => void;
   onUpdate: (patch: Partial<PlanningActivity>) => void;
   onDependenciesChange: (dependencies: PlanningDependency[]) => void;
+  onOpenConflict: (conflict: PlanningConflict) => void;
 }) {
   const dependencies = planningActivityDependencies(activity);
   return <aside className="planning-inspector">
@@ -7837,7 +7960,7 @@ function PlanningActivityInspector({
       {dependencies.map(dependency => <article key={dependency.predecessorId}><span><b>{activities.find(item => item.id === dependency.predecessorId)?.name ?? "Onbekend"}</b><small>{dependency.type} · {dependency.lagDays} d</small></span><button type="button" aria-label="Afhankelijkheid verwijderen" onClick={() => onDependenciesChange(dependencies.filter(item => item.predecessorId !== dependency.predecessorId))}><X size={12}/></button></article>)}
       <select value="" aria-label="Voorganger toevoegen in detailpaneel" onChange={event => { if (event.target.value) onDependenciesChange([...dependencies, { predecessorId: event.target.value, type: "FS", lagDays: 0 }]); }}><option value="">+ Voorganger toevoegen</option>{activities.filter(item => item.id !== activity.id && !dependencies.some(dependency => dependency.predecessorId === item.id)).map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select>
     </section>
-    {conflicts.length > 0 && <section className="planning-inspector-section conflicts"><div><strong>Acties vereist</strong><small>{conflicts.length} conflicten</small></div>{conflicts.map(conflict => <article key={conflict.id}><AlertTriangle size={14}/><span><b>{conflict.resourceName}</b><small>{conflict.message}</small></span></article>)}</section>}
+    {conflicts.length > 0 && <section className="planning-inspector-section conflicts"><div><strong>Acties vereist</strong><small>{conflicts.length} conflicten</small></div>{conflicts.map(conflict => conflict.usages?.length ? <button type="button" className="planning-inspector-conflict" key={conflict.id} onClick={() => onOpenConflict(conflict)}><AlertTriangle size={14}/><span><b>{conflict.resourceName}</b><small>{conflict.message}</small></span><ChevronRight size={14}/></button> : <article key={conflict.id}><AlertTriangle size={14}/><span><b>{conflict.resourceName}</b><small>{conflict.message}</small></span></article>)}</section>}
   </aside>;
 }
 
@@ -7847,19 +7970,19 @@ function PlanningCapacityHeatmap({
   onSelectResource,
 }: {
   periods: { startDate: string; endDate: string; label: string }[];
-  resources: { resource: PlanningResourceCatalogItem; allocations: number[]; unavailable: boolean[] }[];
-  onSelectResource: (resourceName: string) => void;
+  resources: { resource: PlanningResourceCatalogItem; allocations: number[]; unavailable: boolean[]; capacityPct: number }[];
+  onSelectResource: (resourceName: string, period?: { startDate: string; endDate: string; label: string }) => void;
 }) {
   return <section className="planning-capacity-card">
-    <div className="startup-section-title"><div><p className="eyebrow">Resourcecapaciteit</p><h3>Beschikbaarheid en overbezetting</h3></div><div className="capacity-legend"><span className="free">Beschikbaar</span><span className="busy">Bezet</span><span className="over">Overbezet</span><span className="absent">Afwezig / blokkering</span></div></div>
+    <div className="startup-section-title"><div><p className="eyebrow">Resourcecapaciteit · alle projecten</p><h3>Beschikbaarheid en overbezetting</h3><span>Klik op een rode periode om alle betrokken projectboekingen te openen.</span></div><div className="capacity-legend"><span className="free">Beschikbaar</span><span className="busy">Bezet</span><span className="over">Overbezet</span><span className="absent">Afwezig / blokkering</span></div></div>
     <div className="capacity-heatmap" style={{ "--capacity-periods": periods.length } as CSSProperties}>
       <div className="capacity-corner">Resource</div>
       {periods.map(period => <div className="capacity-period" key={period.startDate}>{period.label}</div>)}
-      {resources.map(({ resource, allocations, unavailable }) => <Fragment key={resource.key}>
+      {resources.map(({ resource, allocations, unavailable, capacityPct }) => <Fragment key={resource.key}>
         <button type="button" className="capacity-resource" onClick={() => onSelectResource(resource.resourceName)}><strong>{resource.resourceName}</strong><small>{resource.resourceType}</small></button>
         {allocations.map((allocation, index) => {
-          const state = unavailable[index] && allocation === 0 ? "absent" : allocation > 100 ? "over" : allocation > 0 ? "busy" : "free";
-          return <button type="button" className={`capacity-cell ${state}`} key={`${resource.key}-${periods[index]?.startDate}`} title={`${resource.resourceName}: ${allocation}% gepland in ${periods[index]?.label}`} onClick={() => onSelectResource(resource.resourceName)}><span style={{ height: `${Math.min(100, Math.max(8, allocation))}%` }}/><b>{allocation ? `${allocation}%` : state === "absent" ? "HR" : "vrij"}</b></button>;
+          const state = unavailable[index] && allocation === 0 ? "absent" : allocation > capacityPct ? "over" : allocation > 0 ? "busy" : "free";
+          return <button type="button" className={`capacity-cell ${state}`} key={`${resource.key}-${periods[index]?.startDate}`} title={`${resource.resourceName}: piek ${allocation}% tegenover ${capacityPct}% capaciteit in ${periods[index]?.label}`} onClick={() => onSelectResource(resource.resourceName, periods[index])}><span style={{ height: `${Math.min(100, Math.max(8, allocation))}%` }}/><b>{allocation ? `${allocation}%` : state === "absent" ? "HR" : "vrij"}</b></button>;
         })}
       </Fragment>)}
     </div>
