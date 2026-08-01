@@ -14,6 +14,7 @@
     "lint": "oxlint",
     "preview": "vite preview",
     "test": "vitest run --config vitest.config.cjs",
+    "test:bim-fixtures": "node scripts/check-bim-test-models.mjs",
     "security:audit": "npm audit --omit=dev --audit-level=high",
     "performance:check": "node scripts/check-bundle-budget.mjs",
     "release:check": "npm test && npm run lint && npm run build && npm run performance:check && npm run security:audit"
