@@ -4,6 +4,7 @@ set -Eeuo pipefail
 APP_ROOT="/var/www/bouwflow"
 RELEASES="$APP_ROOT/releases"
 CURRENT="$APP_ROOT/current"
+SHARED_ENV="$APP_ROOT/shared/mail.env"
 KEEP_RELEASES=5
 
 release_id="${1:-}"
@@ -35,6 +36,11 @@ rm -rf -- "$release"
 mkdir -p "$release"
 tar -xzf "$archive" -C "$release"
 printf 'BUILD_SHA=%s\n' "$release_id" > "$release/release.env"
+if [[ -r "$SHARED_ENV" ]]; then
+    grep -E '^M365_MAIL_(TENANT_ID|CLIENT_ID|CLIENT_SECRET|MAILBOX)=' \
+        "$SHARED_ENV" >> "$release/release.env"
+fi
+chmod 0640 "$release/release.env"
 
 # Nginx draait als www-data en moet de release kunnen doorkruisen en de
 # afzonderlijke publieke bestanden kunnen lezen. Servercode blijft uitsluitend
