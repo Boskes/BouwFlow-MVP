@@ -667,12 +667,39 @@ export const changeOrderApprovalSchema = z.object({ approvedBy: z.string().trim(
 export const progressStatementSchema = z.object({
   periodStart: z.iso.date(),
   periodEnd: z.iso.date(),
-  lines: z.array(z.object({ workPackageId: z.uuid(), cumulativeProgressPct: z.number().min(0).max(100) })).min(1).max(500),
+  lines: z.array(z.object({
+    workPackageId: z.uuid(),
+    cumulativeProgressPct: z.number().min(0).max(100),
+    measurementMethod: z.enum(['Handmatig','Meetstaat','Dagrapporten','BIM']).optional(),
+    measuredQuantity: z.number().nonnegative().max(1_000_000_000).optional(),
+    unit: z.string().trim().max(20).optional(),
+    comment: z.string().trim().max(1_000).optional(),
+    evidenceDocumentIds: z.array(z.uuid()).max(100).optional(),
+    bimEvidence: z.object({
+      modelId: z.string().trim().min(1).max(150), modelName: z.string().trim().min(1).max(250), modelVersion: z.string().trim().min(1).max(100),
+      discipline: z.enum(['Architectuur','Structuur','Technieken','Infrastructuur','Multidisciplinair']),
+      elementIds: z.array(z.string().trim().min(1).max(100)).min(1).max(20_000), elementCount: z.number().int().positive().max(20_000),
+      measuredQuantity: z.number().nonnegative().max(1_000_000_000), verifiedQuantity: z.number().nonnegative().max(1_000_000_000),
+      unit: z.enum(['m²','m³','m','st']), completionPct: z.number().min(0).max(100), measuredAt: z.iso.datetime(), measuredBy: z.string().trim().min(2).max(150),
+      status: z.enum(['Concept','Gecontroleerd']), clashFree: z.boolean(), notes: z.string().trim().max(1_000),
+    }).optional(),
+  })).min(1).max(500),
   changeOrderIds: z.array(z.uuid()).max(500),
   priceRevisionAmount: z.number().min(-1_000_000_000).max(1_000_000_000),
   retentionPct: z.number().min(0).max(100),
   notes: z.string().trim().max(3_000),
+  valuationDate: z.iso.date().optional(),
+  dueDate: z.iso.date().optional(),
+  certificateReference: z.string().trim().max(100).optional(),
+  preparedBy: z.string().trim().max(150).optional(),
+  revisionFormula: z.string().trim().max(500).optional(),
+  advancePaymentAmount: z.number().min(-1_000_000_000).max(1_000_000_000).optional(),
+  advanceRecoveryAmount: z.number().nonnegative().max(1_000_000_000).optional(),
+  otherDeductionsAmount: z.number().nonnegative().max(1_000_000_000).optional(),
+  evidenceDocumentIds: z.array(z.uuid()).max(500).optional(),
+  qualityChecklist: z.object({ measurementsVerified:z.boolean(), evidenceComplete:z.boolean(), changesApproved:z.boolean(), bimModelValidated:z.boolean() }).optional(),
 }).refine(value => value.periodEnd >= value.periodStart, { message: 'Het periode-einde moet op of na de startdatum liggen', path: ['periodEnd'] })
+  .refine(value => !value.dueDate || value.dueDate >= (value.valuationDate ?? value.periodEnd), { message: 'De betaaldatum moet op of na de waarderingsdatum liggen', path: ['dueDate'] })
 
 export const progressStatementApprovalSchema = z.object({ approvedBy: z.string().trim().min(2).max(150) })
 

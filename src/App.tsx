@@ -82,6 +82,7 @@ import type { DossierEmailContext } from './DossierEmailTab'
 const FormulaBuilderDialog = lazy(() => import('./FormulaBuilderDialog'))
 const BoqItemAdvancedDialog = lazy(() => import('./FormulaBuilderDialog').then(module => ({ default: module.BoqItemAdvancedDialog })))
 const BimIfcViewer = lazy(() => import('./BimIfcViewer'))
+const BimProgressDialog = lazy(() => import('./BimProgressDialog'))
 const MailboxPage = lazy(() => import('./MailboxPage'))
 const DossierEmailTab = lazy(() => import('./DossierEmailTab'))
 import type { IfcViewerCommand, IfcViewerElement } from "./BimIfcViewer";
@@ -193,6 +194,7 @@ import {
   type ProcurementRequestInput,
   type ProgressStatement,
   type ProgressStatementInput,
+  type ProgressMeasurementMethod,
   type Project,
   type ProjectBaselineInput,
   type ProjectClaimInput,
@@ -9941,7 +9943,7 @@ function ProgressStatements({
                           </strong>
                           <small>
                             {statement.lines.length} werkpakketten ·{" "}
-                            {statement.changeOrderIds.length} meerwerken
+                            {statement.changeOrderIds.length} meerwerken · {statement.lines.filter(line=>line.bimEvidence).length} BIM-metingen
                           </small>
                         </div>
                         <div>
@@ -9974,6 +9976,11 @@ function ProgressStatements({
                           </span>
                           <strong>- {money(statement.retentionAmount)}</strong>
                         </div>
+                      </div>
+                      <div className="statement-professional-meta">
+                        <span><FileCheck2 size={14}/><strong>{statement.certificateReference||"Certificaatreferentie bij indiening"}</strong></span>
+                        <span><CalendarClock size={14}/>Waardering {date(statement.valuationDate??statement.periodEnd)} · betaling {statement.dueDate?date(statement.dueDate):"nog te bepalen"}</span>
+                        <span><Boxes size={14}/>{statement.lines.filter(line=>line.bimEvidence?.status==="Gecontroleerd").length} gecontroleerde BIM-meetbewijzen</span>
                       </div>
                       <div className="statement-progress">
                         {statement.lines.map((line) => (
@@ -10127,19 +10134,27 @@ function ProgressStatementDialog({
     previous?.lines.map((line) => [line.workPackageId, line]) ?? [],
   );
   const today = new Date().toISOString().slice(0, 10);
+  const [bimWorkPackageId,setBimWorkPackageId] = useState<string>();
   const [form, setForm] = useState<ProgressStatementInput>(
     statement
       ? {
           periodStart: statement.periodStart,
           periodEnd: statement.periodEnd,
-          lines: statement.lines.map((line) => ({
-            workPackageId: line.workPackageId,
-            cumulativeProgressPct: line.cumulativeProgressPct,
-          })),
+          lines: statement.lines.map((line) => ({ ...line })),
           changeOrderIds: [...statement.changeOrderIds],
           priceRevisionAmount: statement.priceRevisionAmount,
           retentionPct: statement.retentionPct,
           notes: statement.notes,
+          valuationDate: statement.valuationDate ?? statement.periodEnd,
+          dueDate: statement.dueDate ?? addCalendarDays(statement.periodEnd,30),
+          certificateReference: statement.certificateReference ?? statement.number,
+          preparedBy: statement.preparedBy ?? "",
+          revisionFormula: statement.revisionFormula ?? "Contractuele prijsherzieningsformule op de waarderingsdatum",
+          advancePaymentAmount: statement.advancePaymentAmount ?? 0,
+          advanceRecoveryAmount: statement.advanceRecoveryAmount ?? 0,
+          otherDeductionsAmount: statement.otherDeductionsAmount ?? 0,
+          evidenceDocumentIds: statement.evidenceDocumentIds ?? [],
+          qualityChecklist: statement.qualityChecklist ?? {measurementsVerified:false,evidenceComplete:false,changesApproved:false,bimModelValidated:false},
         }
       : {
           periodStart: previous
@@ -10155,6 +10170,16 @@ function ProgressStatementDialog({
           priceRevisionAmount: 0,
           retentionPct: 5,
           notes: "",
+          valuationDate: today,
+          dueDate: addCalendarDays(today,30),
+          certificateReference: "",
+          preparedBy: "",
+          revisionFormula: "Contractuele prijsherzieningsformule op de waarderingsdatum",
+          advancePaymentAmount: 0,
+          advanceRecoveryAmount: 0,
+          otherDeductionsAmount: 0,
+          evidenceDocumentIds: [],
+          qualityChecklist: {measurementsVerified:false,evidenceComplete:false,changesApproved:false,bimModelValidated:false},
         },
   );
   const totalBudget = project.workPackages.reduce(
@@ -10196,7 +10221,7 @@ function ProgressStatementDialog({
   const changeAmount = availableChanges
     .filter((item) => form.changeOrderIds.includes(item.id))
     .reduce((sum, item) => sum + item.total, 0);
-  const gross = workAmount + changeAmount + form.priceRevisionAmount;
+  const gross = workAmount + changeAmount + form.priceRevisionAmount + (form.advancePaymentAmount??0) - (form.advanceRecoveryAmount??0) - (form.otherDeductionsAmount??0);
   const retention = (gross * form.retentionPct) / 100;
   const submit = async (event: FormEvent) => {
     event.preventDefault();
@@ -10281,6 +10306,14 @@ function ProgressStatementDialog({
               />
             </label>
           </section>
+          <section className="statement-professional-fields">
+            <div><p className="eyebrow">Certificatie en betaling</p><h3>Formele vorderingsgegevens</h3></div>
+            <label>Waarderingsdatum<input required type="date" value={form.valuationDate} onChange={event=>setForm({...form,valuationDate:event.target.value})}/></label>
+            <label>Uiterste betaaldatum<input required type="date" min={form.valuationDate??form.periodEnd} value={form.dueDate} onChange={event=>setForm({...form,dueDate:event.target.value})}/></label>
+            <label>Certificaatreferentie<input value={form.certificateReference} onChange={event=>setForm({...form,certificateReference:event.target.value})} placeholder="bv. CERT-2026-08-03"/></label>
+            <label>Opgemaakt door<input value={form.preparedBy} onChange={event=>setForm({...form,preparedBy:event.target.value})} placeholder="Projectmanager / quantity surveyor"/></label>
+            <label className="wide">Prijsherzieningsformule<input value={form.revisionFormula} onChange={event=>setForm({...form,revisionFormula:event.target.value})}/></label>
+          </section>
           <section className="statement-lines">
             <div>
               <p className="eyebrow">Basisopdracht</p>
@@ -10294,6 +10327,7 @@ function ProgressStatementDialog({
                     <th>Contractwaarde</th>
                     <th>Vorige stand</th>
                     <th>Cumulatief %</th>
+                    <th>Meetmethode</th>
                     <th>Deze periode</th>
                   </tr>
                 </thead>
@@ -10335,6 +10369,14 @@ function ProgressStatementDialog({
                               }
                             />
                             <span>%</span>
+                          </div>
+                        </td>
+                        <td>
+                          <div className="statement-measurement-method">
+                            <select value={form.lines.find(item=>item.workPackageId===line.workPackage.id)?.measurementMethod??"Handmatig"} onChange={event=>setForm({...form,lines:form.lines.map(item=>item.workPackageId===line.workPackage.id?{...item,measurementMethod:event.target.value as ProgressMeasurementMethod}:item)})}>
+                              <option>Handmatig</option><option>Meetstaat</option><option>Dagrapporten</option><option>BIM</option>
+                            </select>
+                            <button type="button" className={form.lines.find(item=>item.workPackageId===line.workPackage.id)?.bimEvidence?"verified":""} onClick={()=>setBimWorkPackageId(line.workPackage.id)}><Boxes size={14}/>{form.lines.find(item=>item.workPackageId===line.workPackage.id)?.bimEvidence?"BIM gekoppeld":"BIM-meting"}</button>
                           </div>
                         </td>
                         <td>
@@ -10409,6 +10451,9 @@ function ProgressStatementDialog({
                 <span>Prijsherziening</span>
                 <strong>{money(form.priceRevisionAmount)}</strong>
               </div>
+              <div><span>Voorschot deze periode</span><input aria-label="Voorschot deze periode" type="number" step="0.01" value={form.advancePaymentAmount??0} onChange={event=>setForm({...form,advancePaymentAmount:Number(event.target.value)})}/></div>
+              <div><span>Terugname voorschot</span><input aria-label="Terugname voorschot" type="number" min="0" step="0.01" value={form.advanceRecoveryAmount??0} onChange={event=>setForm({...form,advanceRecoveryAmount:Number(event.target.value)})}/></div>
+              <div><span>Andere inhoudingen</span><input aria-label="Andere inhoudingen" type="number" min="0" step="0.01" value={form.otherDeductionsAmount??0} onChange={event=>setForm({...form,otherDeductionsAmount:Number(event.target.value)})}/></div>
               <div>
                 <span>Inhouding</span>
                 <strong>- {money(retention)}</strong>
@@ -10418,6 +10463,10 @@ function ProgressStatementDialog({
                 <strong>{money(gross - retention)}</strong>
               </div>
             </div>
+          </section>
+          <section className="statement-quality-gate">
+            <div><p className="eyebrow">Kwaliteitscontrole</p><h3>Indieningschecklist</h3></div>
+            {([['measurementsVerified','Meetstaten en cumulatieven gecontroleerd'],['evidenceComplete','Bewijsstukken en werffoto’s volledig'],['changesApproved','Meerwerken formeel vrijgegeven'],['bimModelValidated','BIM-versie, selecties en clashes gevalideerd']] as const).map(([key,label])=><label key={key}><input type="checkbox" checked={form.qualityChecklist?.[key]??false} onChange={event=>setForm({...form,qualityChecklist:{measurementsVerified:false,evidenceComplete:false,changesApproved:false,bimModelValidated:false,...form.qualityChecklist,[key]:event.target.checked}})}/><span><CheckCircle2 size={15}/>{label}</span></label>)}
           </section>
         </div>
         <div className="modal-actions">
@@ -10430,6 +10479,7 @@ function ProgressStatementDialog({
           <button className="primary">Concept opslaan</button>
         </div>
       </form>
+      {bimWorkPackageId&&<Suspense fallback={null}><BimProgressDialog workPackages={project.workPackages} initialWorkPackageId={bimWorkPackageId} previousPct={previousLines.get(bimWorkPackageId)?.cumulativeProgressPct??0} preparedBy={form.preparedBy??""} initialEvidence={form.lines.find(item=>item.workPackageId===bimWorkPackageId)?.bimEvidence} onClose={()=>setBimWorkPackageId(undefined)} onApply={(workPackageId,progressPct,evidence)=>{setForm(current=>({...current,qualityChecklist:{measurementsVerified:current.qualityChecklist?.measurementsVerified??false,evidenceComplete:current.qualityChecklist?.evidenceComplete??false,changesApproved:current.qualityChecklist?.changesApproved??false,bimModelValidated:evidence.status==="Gecontroleerd"},lines:current.lines.map(item=>item.workPackageId===workPackageId?{...item,cumulativeProgressPct:progressPct,measurementMethod:"BIM",measuredQuantity:evidence.verifiedQuantity,unit:evidence.unit,bimEvidence:evidence,comment:`${evidence.elementCount} BIM-elementen · ${evidence.modelName} · ${evidence.modelVersion}`}:item)}));setBimWorkPackageId(undefined)}}/></Suspense>}
     </div>
   );
 }

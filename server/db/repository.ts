@@ -188,6 +188,7 @@ interface ProgressStatementRow extends QueryResultRow {
   change_order_ids: string[] | string; work_amount: string; change_order_amount: string; price_revision_amount: string; gross_amount: string
   retention_pct: string; retention_amount: string; net_amount: string; status: ProgressStatement['status']; notes: string; created_at: string | Date
   submitted_at: string | Date | null; approved_by: string | null; approved_at: string | Date | null; invoice_id: string | null
+  details: Partial<ProgressStatement> | string | null
 }
 
 interface SalesInvoiceRow extends QueryResultRow {
@@ -423,11 +424,23 @@ function mapChangeOrder(row: ChangeOrderRow): ChangeOrder {
 }
 
 function mapProgressStatement(row: ProgressStatementRow): ProgressStatement {
+  const details = row.details ? jsonValue<Partial<ProgressStatement>>(row.details) : {}
   return {
     id: row.id, number: row.number, projectId: row.project_id, periodStart: dateOnly(row.period_start), periodEnd: dateOnly(row.period_end), lines: jsonValue(row.lines), changeOrderIds: jsonValue(row.change_order_ids),
     workAmount: Number(row.work_amount), changeOrderAmount: Number(row.change_order_amount), priceRevisionAmount: Number(row.price_revision_amount), grossAmount: Number(row.gross_amount),
     retentionPct: Number(row.retention_pct), retentionAmount: Number(row.retention_amount), netAmount: Number(row.net_amount), status: row.status, notes: row.notes, createdAt: iso(row.created_at),
     submittedAt: row.submitted_at ? iso(row.submitted_at) : undefined, approvedBy: row.approved_by ?? undefined, approvedAt: row.approved_at ? iso(row.approved_at) : undefined, invoiceId: row.invoice_id ?? undefined,
+    valuationDate:details.valuationDate, dueDate:details.dueDate, certificateReference:details.certificateReference, preparedBy:details.preparedBy,
+    revisionFormula:details.revisionFormula, advancePaymentAmount:Number(details.advancePaymentAmount??0), advanceRecoveryAmount:Number(details.advanceRecoveryAmount??0),
+    otherDeductionsAmount:Number(details.otherDeductionsAmount??0), evidenceDocumentIds:details.evidenceDocumentIds??[], qualityChecklist:details.qualityChecklist,
+  }
+}
+
+function progressStatementDetails(input:ProgressStatementInput) {
+  return {
+    valuationDate:input.valuationDate, dueDate:input.dueDate, certificateReference:input.certificateReference, preparedBy:input.preparedBy,
+    revisionFormula:input.revisionFormula, advancePaymentAmount:input.advancePaymentAmount??0, advanceRecoveryAmount:input.advanceRecoveryAmount??0,
+    otherDeductionsAmount:input.otherDeductionsAmount??0, evidenceDocumentIds:input.evidenceDocumentIds??[], qualityChecklist:input.qualityChecklist,
   }
 }
 
@@ -3055,8 +3068,8 @@ export class BouwFlowRepository {
       const calculated = await this.calculateProgressStatement(client, context.tenantId, projectId, input, id)
       const count = await client.query<{ count: string }>('SELECT count(*)::text AS count FROM progress_statements WHERE tenant_id=$1', [context.tenantId])
       const statement: ProgressStatement = { id, number: `VS-${new Date().getFullYear()}-${String(Number(count.rows[0].count) + 1).padStart(3, '0')}`, projectId, ...input, ...calculated, status: 'Concept', createdAt: new Date().toISOString() }
-      await client.query(`INSERT INTO progress_statements (tenant_id,id,number,project_id,period_start,period_end,lines,change_order_ids,work_amount,change_order_amount,price_revision_amount,gross_amount,retention_pct,retention_amount,net_amount,status,notes,created_at)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)`, [context.tenantId, statement.id, statement.number, projectId, statement.periodStart, statement.periodEnd, JSON.stringify(statement.lines), JSON.stringify(statement.changeOrderIds), statement.workAmount, statement.changeOrderAmount, statement.priceRevisionAmount, statement.grossAmount, statement.retentionPct, statement.retentionAmount, statement.netAmount, statement.status, statement.notes, statement.createdAt])
+      await client.query(`INSERT INTO progress_statements (tenant_id,id,number,project_id,period_start,period_end,lines,change_order_ids,work_amount,change_order_amount,price_revision_amount,gross_amount,retention_pct,retention_amount,net_amount,status,notes,created_at,details)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)`, [context.tenantId, statement.id, statement.number, projectId, statement.periodStart, statement.periodEnd, JSON.stringify(statement.lines), JSON.stringify(statement.changeOrderIds), statement.workAmount, statement.changeOrderAmount, statement.priceRevisionAmount, statement.grossAmount, statement.retentionPct, statement.retentionAmount, statement.netAmount, statement.status, statement.notes, statement.createdAt, JSON.stringify(progressStatementDetails(input))])
       await this.audit(client, context, 'progress_statement', statement.id, 'created', null, statement)
       return statement
     })
@@ -3069,7 +3082,7 @@ export class BouwFlowRepository {
       const current = mapProgressStatement(result.rows[0])
       if (current.status !== 'Concept') throw new RepositoryError('Alleen een conceptvorderingsstaat kan worden gewijzigd', 409)
       const calculated = await this.calculateProgressStatement(client, context.tenantId, current.projectId, input, statementId)
-      await client.query(`UPDATE progress_statements SET period_start=$3,period_end=$4,lines=$5,change_order_ids=$6,work_amount=$7,change_order_amount=$8,price_revision_amount=$9,gross_amount=$10,retention_pct=$11,retention_amount=$12,net_amount=$13,notes=$14 WHERE tenant_id=$1 AND id=$2`, [context.tenantId, statementId, input.periodStart, input.periodEnd, JSON.stringify(calculated.lines), JSON.stringify(input.changeOrderIds), calculated.workAmount, calculated.changeOrderAmount, input.priceRevisionAmount, calculated.grossAmount, input.retentionPct, calculated.retentionAmount, calculated.netAmount, input.notes])
+      await client.query(`UPDATE progress_statements SET period_start=$3,period_end=$4,lines=$5,change_order_ids=$6,work_amount=$7,change_order_amount=$8,price_revision_amount=$9,gross_amount=$10,retention_pct=$11,retention_amount=$12,net_amount=$13,notes=$14,details=$15 WHERE tenant_id=$1 AND id=$2`, [context.tenantId, statementId, input.periodStart, input.periodEnd, JSON.stringify(calculated.lines), JSON.stringify(input.changeOrderIds), calculated.workAmount, calculated.changeOrderAmount, input.priceRevisionAmount, calculated.grossAmount, input.retentionPct, calculated.retentionAmount, calculated.netAmount, input.notes, JSON.stringify(progressStatementDetails(input))])
       const updated: ProgressStatement = { ...current, ...input, ...calculated }
       await this.audit(client, context, 'progress_statement', statementId, 'updated', current, updated)
       return updated
@@ -3081,6 +3094,9 @@ export class BouwFlowRepository {
       const current = await this.lockProgressStatement(client, context.tenantId, statementId)
       if (current.status !== 'Concept') throw new RepositoryError('Deze vorderingsstaat is al ingediend', 409)
       if (current.netAmount <= 0) throw new RepositoryError('Het netto te vorderen bedrag moet positief zijn', 409)
+      const bimLines = current.lines.filter(line => line.measurementMethod === 'BIM')
+      if (bimLines.some(line => !line.bimEvidence || line.bimEvidence.status !== 'Gecontroleerd')) throw new RepositoryError('Iedere BIM-vorderingsregel vereist een gecontroleerd meetbewijs', 409)
+      if (bimLines.length && !current.qualityChecklist?.bimModelValidated) throw new RepositoryError('Bevestig de BIM-versie- en clashcontrole voor indiening', 409)
       if (current.changeOrderIds.length) {
         const changes = await client.query<ChangeOrderRow>('SELECT * FROM change_orders WHERE tenant_id=$1 AND id=ANY($2::uuid[]) FOR UPDATE', [context.tenantId, current.changeOrderIds])
         if (changes.rowCount !== current.changeOrderIds.length || changes.rows.some(row => row.status !== 'Klaar voor facturatie' || row.progress_statement_id)) throw new RepositoryError('Een geselecteerd meerwerk is niet meer beschikbaar voor facturatie', 409)
@@ -4091,6 +4107,13 @@ export class BouwFlowRepository {
     let allocatedContractValue = 0
     const lines = project.workPackages.map((workPackage, index) => {
       const lineInput = inputLines.get(workPackage.id)!
+      if (lineInput.measurementMethod === 'BIM') {
+        const evidence = lineInput.bimEvidence
+        if (!evidence) throw new RepositoryError(`BIM-meetbewijs ontbreekt voor ${workPackage.code}`, 409)
+        if (evidence.elementCount !== new Set(evidence.elementIds).size) throw new RepositoryError(`BIM-selectie voor ${workPackage.code} bevat dubbele of ontbrekende elementen`, 409)
+        if (evidence.verifiedQuantity > evidence.measuredQuantity) throw new RepositoryError(`Geverifieerde BIM-hoeveelheid voor ${workPackage.code} overschrijdt de gemeten hoeveelheid`, 409)
+        if (Math.abs(evidence.completionPct - lineInput.cumulativeProgressPct) > .001) throw new RepositoryError(`BIM-voortgang voor ${workPackage.code} komt niet overeen met het cumulatieve percentage`, 409)
+      }
       const contractValue = index === project.workPackages.length - 1 ? cents(project.contractValue - allocatedContractValue) : cents(project.contractValue * (totalBudget > 0 ? workPackage.budget / totalBudget : 1 / project.workPackages.length))
       allocatedContractValue = cents(allocatedContractValue + contractValue)
       const previousLine = previousLines.get(workPackage.id)
@@ -4111,7 +4134,7 @@ export class BouwFlowRepository {
     }
     const workAmount = cents(lines.reduce((sum, line) => sum + line.currentPeriod, 0))
     const changeOrderAmount = cents(changes.reduce((sum, change) => sum + change.total, 0))
-    const grossAmount = cents(workAmount + changeOrderAmount + input.priceRevisionAmount)
+    const grossAmount = cents(workAmount + changeOrderAmount + input.priceRevisionAmount + (input.advancePaymentAmount??0) - (input.advanceRecoveryAmount??0) - (input.otherDeductionsAmount??0))
     const retentionAmount = cents(grossAmount * input.retentionPct / 100)
     return { lines, workAmount, changeOrderAmount, grossAmount, retentionAmount, netAmount: cents(grossAmount - retentionAmount) }
   }
