@@ -92,6 +92,7 @@ const mailboxComposeSchema = z.object({
   to:z.array(z.email()).min(1).max(50), cc:z.array(z.email()).max(50).optional(), subject:z.string().trim().min(1).max(250), body:z.string().trim().min(1).max(100_000),
   organizationId:z.uuid().optional(), opportunityId:z.uuid().optional(), projectId:z.uuid().optional(),
 }).strict()
+const mailboxReplySchema = z.object({ body:z.string().trim().min(1).max(100_000) }).strict()
 const mailboxLinkSchema = z.object({ organizationId:z.uuid().optional(), opportunityId:z.uuid().optional(), projectId:z.uuid().optional() }).strict()
 
 function validWebhookAuthorization(authorization: string | undefined, secret: string) {
@@ -291,6 +292,14 @@ export async function buildApp({ pool, authMode = 'development', logger = false,
     const input=mailboxComposeSchema.parse(request.body);const correlationKey=`mailbox:${request.idempotencyKey??request.id}`
     try{const sent=await centralMailService.send({...input,idempotencyKey:correlationKey});return repository.recordOutgoingMailboxMessage(request.context,centralMailService.mailbox??'',sent.providerReference??`m365:${correlationKey}`,correlationKey,input)}
     catch(error){throw new RepositoryError(error instanceof Error?error.message:'E-mailverzending mislukt',503)}
+  })
+  app.post('/api/mailbox/messages/:id/reply', { preHandler:requireRoles(...mailboxRoles) }, async request => {
+    if(!centralMailService)throw new RepositoryError('De centrale Microsoft 365-mailbox is nog niet geconfigureerd',503)
+    const input=mailboxReplySchema.parse(request.body)
+    const message=await repository.mailboxMessage(request.context,uuidParams.parse(request.params).id)
+    if(message.direction!=='Inkomend')throw new RepositoryError('Alleen een inkomend e-mailbericht kan rechtstreeks worden beantwoord',409)
+    try{await centralMailService.reply(message.providerMessageId,input.body);return {sent:true as const}}
+    catch(error){throw new RepositoryError(error instanceof Error?error.message:'E-mailantwoord kon niet worden verzonden',503)}
   })
   app.patch('/api/mailbox/messages/:id/link', { preHandler:requireRoles(...mailboxRoles) }, async request => repository.linkMailboxMessage(request.context,uuidParams.parse(request.params).id,mailboxLinkSchema.parse(request.body)))
 

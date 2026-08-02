@@ -24,6 +24,7 @@ export interface CentralMailService {
   readonly configured: boolean
   readonly mailbox?: string
   send(input: CentralMailInput): Promise<{ providerReference?: string }>
+  reply(providerMessageId: string, body: string): Promise<void>
   synchronize(): Promise<CentralMailMessage[]>
 }
 
@@ -57,6 +58,13 @@ export class Microsoft365MailService implements CentralMailService {
     })
     if (!response.ok) throw new Error(`Microsoft Graph sendMail antwoordde met HTTP ${response.status}: ${(await response.text()).slice(0, 500)}`)
     return { providerReference: `m365:${input.idempotencyKey}` }
+  }
+
+  async reply(providerMessageId: string, body: string) {
+    const response = await this.request(`https://graph.microsoft.com/v1.0/users/${encodeURIComponent(this.mailbox)}/messages/${encodeURIComponent(providerMessageId)}/reply`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ comment: body }),
+    })
+    if (!response.ok) throw new Error(`Microsoft Graph reply antwoordde met HTTP ${response.status}: ${(await response.text()).slice(0, 500)}`)
   }
 
   private async folderMessages(folder: 'inbox' | 'sentitems', direction: CentralMailMessage['direction']) {

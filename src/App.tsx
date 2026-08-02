@@ -77,11 +77,13 @@ import {
 } from "lucide-react";
 import "./App.css";
 import BelgianAddressAutocomplete from "./BelgianAddressAutocomplete";
+import type { DossierEmailContext } from './DossierEmailTab'
 
 const FormulaBuilderDialog = lazy(() => import('./FormulaBuilderDialog'))
 const BoqItemAdvancedDialog = lazy(() => import('./FormulaBuilderDialog').then(module => ({ default: module.BoqItemAdvancedDialog })))
 const BimIfcViewer = lazy(() => import('./BimIfcViewer'))
 const MailboxPage = lazy(() => import('./MailboxPage'))
+const DossierEmailTab = lazy(() => import('./DossierEmailTab'))
 import type { IfcViewerCommand, IfcViewerElement } from "./BimIfcViewer";
 import {
   autoSchedulePlanningActivities,
@@ -1064,7 +1066,8 @@ function dossierTasksFor(state: BouwFlowState, type: DossierType, id: string): D
   return [];
 }
 
-type DossierWorkspaceTab = "Werkruimte" | "Inhoud" | "Samenwerking" | "Historiek";
+type DossierWorkspaceTab = "Werkruimte" | "Inhoud" | "Samenwerking" | "E-mail" | "Historiek";
+const dossierEmailRoles = new Set(["Administrator","Directie","Commercieel medewerker","Tender manager","Calculator","Projectdirecteur","Projectmanager","Werkvoorbereider","Aankoper","Financiële administratie"]);
 
 function dossierChecksFor(state:BouwFlowState,type:DossierType,id:string,tasks:DossierTask[]):DossierCheck[]{
   const checks:DossierCheck[]=tasks.map(task=>({id:`task-${task.id}`,taskId:task.id,title:task.title,detail:`${task.owner}${task.dueDate?` · tegen ${date(task.dueDate)}`:''}`,severity:task.dueDate&&task.dueDate<new Date().toISOString().slice(0,10)?'Blokkerend':'Waarschuwing',targetTab:'Samenwerking',actionLabel:task.actionLabel??'Actie bekijken'}));
@@ -1841,6 +1844,10 @@ function DossierWorkspace({
   const mayManageDocuments=canPerform(viewerUser?.role,'documents.manage');
   const maySubmitDailyReports=canPerform(viewerUser?.role,'daily-reports.submit');
   const maySignDailyReports=canPerform(viewerUser?.role,'daily-reports.sign');
+  const emailOrganizationId = type === "organization" ? id : type === "opportunity" ? state.opportunities.find((item) => item.id === id)?.organizationId : type === "project" ? state.projects.find((item) => item.id === id)?.organizationId : undefined;
+  const emailOrganization = emailOrganizationId ? state.organizations.find((item) => item.id === emailOrganizationId) : undefined;
+  const emailContext: DossierEmailContext | undefined = emailOrganizationId && dossierEmailRoles.has(viewerUser?.role ?? "") ? { type: type as DossierEmailContext["type"], id, label: title, reference: numberLabel, organizationId: emailOrganizationId, defaultRecipient: emailOrganization?.email || emailOrganization?.contacts?.find((contact) => contact.email)?.email } : undefined;
+  const primaryTabs: DossierWorkspaceTab[] = ["Werkruimte","Inhoud","Samenwerking",...(emailContext ? ["E-mail" as const] : []),"Historiek"];
   const hasOperationalAction = Boolean(dailyReportRecord && dailyReportRecord.status !== "Ondertekend") || Boolean(changeOrderRecord && !["Klaar voor facturatie","Opgenomen in vorderingsstaat"].includes(changeOrderRecord.status)) || Boolean(progressRecord && ["Concept","Ingediend"].includes(progressRecord.status)) || absenceRecord?.status === "Aangevraagd" || inspectionRecord?.status === "Open" || Boolean(workTicketRecord && ["Concept","Ter ondertekening"].includes(workTicketRecord.status)) || Boolean(timeEntryRecord && ["Concept","Gecorrigeerd","Ingediend"].includes(timeEntryRecord.status)) || Boolean(claimRecord && !["Aanvaard","Afgewezen"].includes(claimRecord.status));
   const saveDocumentMetadata = async (event: FormEvent) => {
     event.preventDefault();
@@ -1900,6 +1907,7 @@ function DossierWorkspace({
           {mayCorrectWorkflow&&<button className="secondary workflow-correction-button" onClick={()=>setWorkflowCorrectionOpen(true)}><RotateCcw size={15}/>Workflow corrigeren</button>}
           {!activeDocument && type !== "opportunity" && !maySubmitContract && !mayApproveContract && !customerSignableCloseout && !hasOperationalAction && <button className="primary" onClick={() => setTab("Inhoud")}><FolderOpen size={15}/>Inhoud openen</button>}
           <button className="secondary" onClick={() => setTab("Samenwerking")}><CheckCircle2 size={15}/>Taken {tasks.length ? `(${tasks.length})` : ""}</button>
+          {emailContext && <button className="secondary" onClick={() => setTab("E-mail")}><Mail size={15}/>E-mail</button>}
         </div>
         <div className="dossier-utility-actions">
           <button className="icon-button" aria-label={favorite ? "Verwijder uit favorieten" : "Maak favoriet"} aria-pressed={favorite} onClick={() => onToggleFavorite(type, id)}><Star size={16} fill={favorite ? "currentColor" : "none"}/></button>
@@ -1909,7 +1917,7 @@ function DossierWorkspace({
       </section>
 
       <section className="dossier-workflow" aria-label="Dossierworkflow">{workflow.steps.map((step, index) => <div key={step} className={`${index < workflow.currentIndex ? "complete" : ""} ${index === workflow.currentIndex ? "current" : ""}`}><i>{index < workflow.currentIndex ? <CheckCircle2 size={15}/> : index + 1}</i><span>{step}</span></div>)}</section>
-      <nav className="dossier-tabs dossier-primary-tabs" aria-label="Dossieronderdelen">{(["Werkruimte","Inhoud","Samenwerking","Historiek"] as const).map((item) => <button key={item} className={tab === item ? "active" : ""} aria-current={tab === item ? "page" : undefined} onClick={() => setTab(item)}>{item}{item === "Inhoud" ? <small>{dossierDocuments.length}</small> : item === "Samenwerking" ? <small>{tasks.length + links.length}</small> : null}</button>)}</nav>
+      <nav className="dossier-tabs dossier-primary-tabs" aria-label="Dossieronderdelen">{primaryTabs.map((item) => <button key={item} className={tab === item ? "active" : ""} aria-current={tab === item ? "page" : undefined} onClick={() => setTab(item)}>{item}{item === "Inhoud" ? <small>{dossierDocuments.length}</small> : item === "Samenwerking" ? <small>{tasks.length + links.length}</small> : null}</button>)}</nav>
 
       {tab === "Werkruimte" && <div className="dossier-cockpit-grid">
         <aside className="dossier-attention-column">
@@ -1944,6 +1952,7 @@ function DossierWorkspace({
         <section className="panel"><PanelHead eyebrow="Relaties" title="Gekoppelde dossiers"/><div className="dossier-link-list">{links.map((item) => <button key={`${item.type}-${item.id}`} onClick={() => onOpen(item.type, item.id)}><FolderKanban size={17}/><span><strong>{item.label}</strong><small>{dossierTypeLabels[item.type]} · {item.meta}</small></span><ArrowRight size={15}/></button>)}{!links.length && <div className="dossier-empty">Nog geen gekoppelde dossiers.</div>}</div></section>
         {activeDocument && <section className="panel dossier-distribution-list"><PanelHead eyebrow="Distributie" title="Ontvangers en leesstatus"/><div>{activeDocument.recipients.map((recipient) => <article key={recipient.id}><span><strong>{recipient.name}</strong><small>{recipient.email}</small></span><Badge text={recipient.readAt ? "Gelezen" : "Niet gelezen"}/></article>)}{!activeDocument.recipients.length && <div className="dossier-empty">Deze revisie werd nog niet verspreid.</div>}</div></section>}
       </div>}
+      {tab === "E-mail" && emailContext && <Suspense fallback={<section className="panel dossier-email-loading">Dossiermail laden…</section>}><DossierEmailTab context={emailContext} actions={actions}/></Suspense>}
       {tab === "Historiek" && <section className="panel dossier-history"><PanelHead eyebrow="Traceerbaarheid" title="Dossierhistoriek"/>{auditLoading ? <div className="dossier-empty">Auditlog laden…</div> : <RecordTimeline events={activityEvents}/>} {!auditLoading && !auditTrail.length && <p className="dossier-history-note">In demo wordt de statuslijn uit het dossier opgebouwd. In productie toont dit scherm de onveranderlijke serveraudit.</p>}</section>}
     </div>
     {revisingDocument && <DocumentRevisionDialog document={revisingDocument} employees={state.employees} actions={actions} onClose={() => setRevisingDocument(undefined)}/>}

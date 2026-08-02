@@ -25,6 +25,7 @@ export interface MailboxMessage {
 }
 export interface MailboxOverview { configured: boolean; mailbox: string; lastSynchronizedAt?: string; lastSyncError?: string; messages: MailboxMessage[] }
 export interface MailboxComposeInput { to: string[]; cc?: string[]; subject: string; body: string; organizationId?: string; opportunityId?: string; projectId?: string }
+export interface MailboxReplyInput { body: string }
 export interface MailboxLinkInput { organizationId?: string; opportunityId?: string; projectId?: string }
 
 export interface AuditTrailEntry {
