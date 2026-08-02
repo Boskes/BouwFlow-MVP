@@ -20,6 +20,7 @@ import { searchBelgianAddressesOnline } from './belgian-addresses'
 import { buildOosterweelClass8DemoCalculation } from './class8-demo-calculation'
 import { buildFamilyHomeBimCalculation, buildFamilyHomeBimProgressStatement, buildFamilyHomeBimProject } from './family-home-bim'
 import { getBimProductionTestModel } from './bim-test-models'
+import { buildDailyReportEvidence, buildMeetstaatEvidence } from './progress-measurements'
 
 const STORAGE_KEY = 'bouwflow.mvp.v1'
 const DEMO_DATA_VERSION_KEY = 'bouwflow.demo.version'
@@ -537,6 +538,15 @@ const seed: BouwFlowState = {
   projectClaims: [{id:'claim-n72-001',number:'CL-2026-0001',projectId:'project-n72',changeOrderId:'change-n72-cables',type:'Termijnverlenging',cause:'Onvoorziene nutsleidingen',description:'Termijnverlenging wegens bijkomende lokalisatie en omlegging van niet-gekarteerde leidingen.',amount:18450,extensionDays:8,responsibleParty:'Opdrachtgever',documentIds:['document-n72-report'],status:'Intern goedgekeurd',createdBy:'Sofie Janssens',createdAt:'2026-07-21T14:00:00.000Z'}],
 }
 
+const signedN72Report = seed.dailyReports.find(report => report.id === 'report-n72-1')
+if (signedN72Report) {
+  signedN72Report.productionEntries = [{ id: 'production-n72-signed-1', workPackageId: 'wp-n72-1', boqItemId: 'item-1', description: 'Opbraak bestaande verharding', quantity: 1050, unit: 'm²' }]
+}
+const submittedN72Report = seed.dailyReports.find(report => report.id === 'report-n72-2')
+if (submittedN72Report) {
+  submittedN72Report.productionEntries = [{ id: 'production-n72-submitted-1', workPackageId: 'wp-n72-1', boqItemId: 'item-1', description: 'Opbraak bestaande verharding', quantity: 600, unit: 'm²' }]
+}
+
 const emptyState: BouwFlowState = { currentUserId: '', companyUsers: [], workflowDefinitions: [], workflowCorrections: [], legalEntities: [], companyBranches: [], organizations: [], opportunities: [], calculations: [], calculationVersions: [], calculationScenarios: [], costLibraries: [], costLibraryVersions: [], costLibrary: [], units: [], unitConversions: [], quotes: [], projects: [], dailyReports: [], sitePhotos: [], changeOrders: [], progressStatements: [], salesInvoices: [], peppolValidationReports: [], peppolDeliveries: [], peppolAcceptanceRuns: [], peppolAlerts: [], peppolNotifications: [], peppolNotificationSettings: { emailRecipients: [], teamsTargets: [], criticalSlaMinutes: 15, connectorConfigured: false, connectorProvider: 'Niet geconfigureerd', connectorChannels: [], integrationChecks: [], productionGate: { released: false } }, intercompanyCharges: [], projectCosts: [], projectForecasts: [], suppliers: [], procurementRequests: [], purchaseOrders: [], documents: [], qhseCertificates: [], qhseInspections: [], assets: [], warehouses: [], inventoryItems: [], stockMovements: [], subcontractors: [], qhseEvents: [], jointVentures: [], integrationConnections: [], integrationJobs: [], aiAnalyses: [], projectContracts: [], projectCloseouts: [], employees: [], employeeAbsences: [], employeeCrews: [], workTickets: [], timeEntries: [], projectClaims: [] }
 
 const emptyHandover = (): ProjectHandover => ({ status: 'Concept', projectManager: '', plannedStart: '', plannedEnd: '', notes: '', risks: [], checklist: { scopeReviewed: false, budgetReviewed: false, contractReviewed: false, documentsTransferred: false, risksReviewed: false, kickoffPlanned: false } })
@@ -556,7 +566,16 @@ function calculateLocalProgressStatement(state: BouwFlowState, project: Project,
   const totalBudget = project.workPackages.reduce((sum, item) => sum + item.budget, 0)
   let allocated = 0
   const lines = project.workPackages.map((workPackage, index) => {
-    const lineInput = input.lines.find(line => line.workPackageId === workPackage.id) ?? { workPackageId: workPackage.id, cumulativeProgressPct: 0 }
+    let lineInput = input.lines.find(line => line.workPackageId === workPackage.id) ?? { workPackageId: workPackage.id, cumulativeProgressPct: 0 }
+    const calculation = state.calculations.find(item => item.id === project.sourceCalculationId)
+    if (lineInput.measurementMethod === 'Meetstaat' && lineInput.meetstaatEvidence && calculation) {
+      const evidence = buildMeetstaatEvidence(calculation, workPackage, lineInput.meetstaatEvidence.measurements, lineInput.meetstaatEvidence.measuredBy, lineInput.meetstaatEvidence.measuredAt)
+      lineInput = { ...lineInput, cumulativeProgressPct:evidence.completionPct, meetstaatEvidence:evidence }
+    }
+    if (lineInput.measurementMethod === 'Dagrapporten' && calculation) {
+      const evidence = buildDailyReportEvidence(calculation, project, workPackage, state.dailyReports, input.periodEnd)
+      lineInput = { ...lineInput, cumulativeProgressPct:evidence.completionPct, dailyReportEvidence:evidence }
+    }
     const contractValue = index === project.workPackages.length - 1 ? roundCents(project.contractValue - allocated) : roundCents(project.contractValue * (totalBudget > 0 ? workPackage.budget / totalBudget : 1 / project.workPackages.length))
     allocated = roundCents(allocated + contractValue)
     const previousCumulative = previousLines.get(workPackage.id)?.cumulativeValue ?? 0

@@ -85,6 +85,7 @@ const BoqItemAdvancedDialog = lazy(() => import('./FormulaBuilderDialog').then(m
 const BimIfcViewer = lazy(() => import('./BimIfcViewer'))
 const FamilyHomeBimViewer = lazy(() => import('./FamilyHomeBimViewer'))
 const BimProgressDialog = lazy(() => import('./BimProgressDialog'))
+const ProgressMeasurementDialog = lazy(() => import('./ProgressMeasurementDialog'))
 const MailboxPage = lazy(() => import('./MailboxPage'))
 const DossierEmailTab = lazy(() => import('./DossierEmailTab'))
 import type { IfcViewerCommand, IfcViewerElement } from "./BimIfcViewer";
@@ -147,6 +148,7 @@ import {
   type CostLibrary,
   type CostLibraryItem,
   type DailyLaborEntry,
+  type DailyProductionEntry,
   type DailyReport,
   type DailyReportInput,
   type DailyResourceEntry,
@@ -238,6 +240,7 @@ import {
   type WorkflowDefinition,
   type WorkflowDefinitionInput,
 } from "./domain";
+import { workPackageBoqItems } from './progress-measurements'
 import { canPerform, pageLabels, roleDefinition, roleDefinitions, workflowFor } from "./administration";
 import { useBouwFlowStore } from "./store";
 import { useAuth } from "./auth-context";
@@ -8310,6 +8313,7 @@ function SiteReports({
         <DailyReportDialog
           project={project}
           report={editing === "new" ? undefined : editing}
+          calculation={state.calculations.find(item=>item.id===project.sourceCalculationId)}
           employees={state.employees}
           actions={actions}
           onClose={() => setEditing(undefined)}
@@ -8363,12 +8367,14 @@ function WorkTicketWorkspace({ state, actions, projectId, onOpenDossier }: { sta
 function DailyReportDialog({
   project,
   report,
+  calculation,
   employees,
   actions,
   onClose,
 }: {
   project: Project;
   report?: DailyReport;
+  calculation?: Calculation;
   employees: Employee[];
   actions: ReturnType<typeof useBouwFlowStore>["actions"];
   onClose: () => void;
@@ -8394,6 +8400,7 @@ function DailyReportDialog({
           subcontractors: [...report.subcontractors],
           materials: report.materials.map((entry) => ({ ...entry })),
           machines: report.machines.map((entry) => ({ ...entry })),
+          productionEntries: (report.productionEntries??[]).map((entry) => ({ ...entry })),
           deliveries: report.deliveries,
           delays: report.delays,
           problems: report.problems,
@@ -8418,6 +8425,7 @@ function DailyReportDialog({
           subcontractors: [],
           materials: [],
           machines: [],
+          productionEntries: [],
           deliveries: "",
           delays: "",
           problems: "",
@@ -8441,6 +8449,7 @@ function DailyReportDialog({
       ),
       materials: form.materials.filter((entry) => entry.description.trim()),
       machines: form.machines.filter((entry) => entry.description.trim()),
+      productionEntries: (form.productionEntries??[]).filter((entry) => entry.boqItemId && entry.quantity>0),
     };
     if (report) await actions.updateDailyReport(report.id, input);
     else await actions.createDailyReport(project.id, input);
@@ -8453,6 +8462,9 @@ function DailyReportDialog({
         entry.id === id ? { ...entry, ...patch } : entry,
       ),
     }));
+  const selectedWorkPackage=project.workPackages.find(item=>item.id===form.workPackageId)
+  const productionItems=selectedWorkPackage?workPackageBoqItems(calculation,selectedWorkPackage):[]
+  const updateProduction=(id:string,patch:Partial<DailyProductionEntry>)=>setForm(current=>({...current,productionEntries:(current.productionEntries??[]).map(entry=>entry.id===id?{...entry,...patch}:entry)}))
   return (
     <div className="modal-backdrop daily-report-backdrop">
       <form className="modal daily-report-modal" onSubmit={save}>
@@ -8495,6 +8507,7 @@ function DailyReportDialog({
                   setForm({
                     ...form,
                     workPackageId: event.target.value || undefined,
+                    productionEntries: [],
                   })
                 }
               >
@@ -8678,6 +8691,11 @@ function DailyReportDialog({
                 onChange={(event) => setSubcontractorText(event.target.value)}
               />
             </label>
+          </section>
+          <section className="daily-form-section daily-production-section">
+            <div className="daily-section-head"><div><p className="eyebrow">Meetbare productie</p><h3>Hoeveelheden uit de calculatiemeetstaat</h3></div><button type="button" className="secondary" disabled={!productionItems.length} onClick={()=>{const item=productionItems[0];if(!item||!selectedWorkPackage)return;setForm(current=>({...current,productionEntries:[...(current.productionEntries??[]),{id:createId(),workPackageId:selectedWorkPackage.id,boqItemId:item.id,description:item.description,quantity:1,unit:item.unit}]}))}}><Plus size={14}/>Productieregel</button></div>
+            <p className="muted">Deze hoeveelheden worden pas in een vorderingsstaat opgenomen nadat het dagrapport is ondertekend.</p>
+            {(form.productionEntries??[]).length?<div className="production-entry-list">{(form.productionEntries??[]).map(entry=><div className="production-entry" key={entry.id}><select aria-label="Calculatiepost" value={entry.boqItemId} onChange={event=>{const item=productionItems.find(candidate=>candidate.id===event.target.value);if(item)updateProduction(entry.id,{boqItemId:item.id,description:item.description,unit:item.unit,workPackageId:selectedWorkPackage?.id??entry.workPackageId})}}>{productionItems.map(item=><option key={item.id} value={item.id}>{item.code} · {item.description}</option>)}</select><label>Hoeveelheid<input type="number" min="0.01" step="0.01" value={entry.quantity} onChange={event=>updateProduction(entry.id,{quantity:Number(event.target.value)})}/></label><span>{entry.unit}</span><button type="button" className="icon-button danger" aria-label="Productieregel verwijderen" onClick={()=>setForm(current=>({...current,productionEntries:(current.productionEntries??[]).filter(item=>item.id!==entry.id)}))}><Trash2 size={16}/></button></div>)}</div>:<div className="measurement-empty compact"><strong>Nog geen productiehoeveelheden</strong><span>{productionItems.length?'Voeg de vandaag uitgevoerde hoeveelheden toe.':'Voor dit werkpakket zijn geen calculatieposten gekoppeld.'}</span></div>}
           </section>
           <div className="daily-resource-grid">
             <ResourceEditor
@@ -10115,6 +10133,9 @@ function ProgressStatements({
       {editing && project && (
         <ProgressStatementDialog
           project={project}
+          calculation={state.calculations.find(item=>item.id===project.sourceCalculationId)}
+          dailyReports={state.dailyReports.filter(item=>item.projectId===project.id)}
+          actor={state.companyUsers.find(item=>item.id===state.currentUserId)?.displayName??"Projectteam"}
           statement={editing === "new" ? undefined : editing}
           statements={statements}
           changeOrders={state.changeOrders.filter(
@@ -10153,6 +10174,9 @@ const dayAfter = (value: string) => addCalendarDays(value, 1);
 
 function ProgressStatementDialog({
   project,
+  calculation,
+  dailyReports,
+  actor,
   statement,
   statements,
   changeOrders,
@@ -10160,6 +10184,9 @@ function ProgressStatementDialog({
   onClose,
 }: {
   project: Project;
+  calculation?: Calculation;
+  dailyReports: DailyReport[];
+  actor: string;
   statement?: ProgressStatement;
   statements: ProgressStatement[];
   changeOrders: ChangeOrder[];
@@ -10174,6 +10201,7 @@ function ProgressStatementDialog({
   );
   const today = new Date().toISOString().slice(0, 10);
   const [bimWorkPackageId,setBimWorkPackageId] = useState<string>();
+  const [measurementSelection,setMeasurementSelection] = useState<{workPackageId:string;method:'Meetstaat'|'Dagrapporten'}>();
   const [form, setForm] = useState<ProgressStatementInput>(
     statement
       ? {
@@ -10375,6 +10403,8 @@ function ProgressStatementDialog({
                     const previousPct =
                       previousLines.get(line.workPackage.id)
                         ?.cumulativeProgressPct ?? 0;
+                    const currentLine=form.lines.find(item=>item.workPackageId===line.workPackage.id)!;
+                    const measurementMethod=currentLine.measurementMethod??"Handmatig";
                     return (
                       <tr key={line.workPackage.id}>
                         <td>
@@ -10391,6 +10421,8 @@ function ProgressStatementDialog({
                               max="100"
                               step="0.01"
                               value={line.pct}
+                              readOnly={measurementMethod!=="Handmatig"}
+                              title={measurementMethod!=="Handmatig"?"Deze stand wordt automatisch uit de gekoppelde meetbron berekend":undefined}
                               onChange={(event) =>
                                 setForm({
                                   ...form,
@@ -10412,10 +10444,12 @@ function ProgressStatementDialog({
                         </td>
                         <td>
                           <div className="statement-measurement-method">
-                            <select value={form.lines.find(item=>item.workPackageId===line.workPackage.id)?.measurementMethod??"Handmatig"} onChange={event=>setForm({...form,lines:form.lines.map(item=>item.workPackageId===line.workPackage.id?{...item,measurementMethod:event.target.value as ProgressMeasurementMethod}:item)})}>
+                            <select value={measurementMethod} onChange={event=>setForm({...form,lines:form.lines.map(item=>item.workPackageId===line.workPackage.id?{...item,measurementMethod:event.target.value as ProgressMeasurementMethod,meetstaatEvidence:undefined,dailyReportEvidence:undefined,bimEvidence:undefined}:item)})}>
                               <option>Handmatig</option><option>Meetstaat</option><option>Dagrapporten</option><option>BIM</option>
                             </select>
-                            <button type="button" className={form.lines.find(item=>item.workPackageId===line.workPackage.id)?.bimEvidence?"verified":""} onClick={()=>setBimWorkPackageId(line.workPackage.id)}><Boxes size={14}/>{form.lines.find(item=>item.workPackageId===line.workPackage.id)?.bimEvidence?"BIM gekoppeld":"BIM-meting"}</button>
+                            {measurementMethod==="Meetstaat"&&<button type="button" className={currentLine.meetstaatEvidence?"verified":""} onClick={()=>setMeasurementSelection({workPackageId:line.workPackage.id,method:"Meetstaat"})}><ClipboardList size={14}/>{currentLine.meetstaatEvidence?`${currentLine.meetstaatEvidence.itemCount} posten gekoppeld`:"Meetstaat koppelen"}</button>}
+                            {measurementMethod==="Dagrapporten"&&<button type="button" className={currentLine.dailyReportEvidence?"verified":""} onClick={()=>setMeasurementSelection({workPackageId:line.workPackage.id,method:"Dagrapporten"})}><FileCheck2 size={14}/>{currentLine.dailyReportEvidence?`${currentLine.dailyReportEvidence.reportCount} rapporten gekoppeld`:"Rapporten ophalen"}</button>}
+                            {measurementMethod==="BIM"&&<button type="button" className={currentLine.bimEvidence?"verified":""} onClick={()=>setBimWorkPackageId(line.workPackage.id)}><Boxes size={14}/>{currentLine.bimEvidence?"BIM gekoppeld":"BIM-meting"}</button>}
                           </div>
                         </td>
                         <td>
@@ -10519,6 +10553,7 @@ function ProgressStatementDialog({
         </div>
       </form>
       {bimWorkPackageId&&<Suspense fallback={null}><BimProgressDialog workPackages={project.workPackages} initialWorkPackageId={bimWorkPackageId} previousPct={previousLines.get(bimWorkPackageId)?.cumulativeProgressPct??0} preparedBy={form.preparedBy??""} initialEvidence={form.lines.find(item=>item.workPackageId===bimWorkPackageId)?.bimEvidence} onClose={()=>setBimWorkPackageId(undefined)} onApply={(workPackageId,progressPct,evidence)=>{setForm(current=>({...current,qualityChecklist:{measurementsVerified:current.qualityChecklist?.measurementsVerified??false,evidenceComplete:current.qualityChecklist?.evidenceComplete??false,changesApproved:current.qualityChecklist?.changesApproved??false,bimModelValidated:evidence.status==="Gecontroleerd"},lines:current.lines.map(item=>item.workPackageId===workPackageId?{...item,cumulativeProgressPct:progressPct,measurementMethod:"BIM",measuredQuantity:evidence.verifiedQuantity,unit:evidence.unit,bimEvidence:evidence,comment:`${evidence.elementCount} BIM-elementen · ${evidence.modelName} · ${evidence.modelVersion}`}:item)}));setBimWorkPackageId(undefined)}}/></Suspense>}
+      {measurementSelection&&<Suspense fallback={null}><ProgressMeasurementDialog calculation={calculation} project={project} workPackage={project.workPackages.find(item=>item.id===measurementSelection.workPackageId)!} method={measurementSelection.method} dailyReports={dailyReports} periodEnd={form.periodEnd} actor={form.preparedBy||actor} line={form.lines.find(item=>item.workPackageId===measurementSelection.workPackageId)!} previousPct={previousLines.get(measurementSelection.workPackageId)?.cumulativeProgressPct??0} onClose={()=>setMeasurementSelection(undefined)} onApply={patch=>{setForm(current=>({...current,qualityChecklist:{measurementsVerified:true,evidenceComplete:current.qualityChecklist?.evidenceComplete??false,changesApproved:current.qualityChecklist?.changesApproved??false,bimModelValidated:current.qualityChecklist?.bimModelValidated??false},lines:current.lines.map(item=>item.workPackageId===measurementSelection.workPackageId?{...item,...patch}:item)}));setMeasurementSelection(undefined)}}/></Suspense>}
     </div>
   );
 }

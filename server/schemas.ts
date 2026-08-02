@@ -552,6 +552,15 @@ const dailyResourceEntrySchema = z.object({
   unit: z.string().trim().min(1).max(20),
 })
 
+const dailyProductionEntrySchema = z.object({
+  id: z.uuid(),
+  workPackageId: z.uuid(),
+  boqItemId: z.uuid(),
+  description: z.string().trim().min(2).max(300),
+  quantity: z.number().positive().max(1_000_000_000),
+  unit: z.string().trim().min(1).max(20),
+})
+
 export const dailyReportSchema = z.object({
   date: z.iso.date(),
   workPackageId: z.uuid().optional(),
@@ -562,6 +571,7 @@ export const dailyReportSchema = z.object({
   subcontractors: z.array(z.string().trim().min(1).max(200)).max(100),
   materials: z.array(dailyResourceEntrySchema).max(200),
   machines: z.array(dailyResourceEntrySchema).max(200),
+  productionEntries: z.array(dailyProductionEntrySchema).max(2_000).default([]),
   deliveries: z.string().trim().max(2_000),
   delays: z.string().trim().max(2_000),
   problems: z.string().trim().max(2_000),
@@ -682,6 +692,17 @@ export const progressStatementSchema = z.object({
       measuredQuantity: z.number().nonnegative().max(1_000_000_000), verifiedQuantity: z.number().nonnegative().max(1_000_000_000),
       unit: z.enum(['m²','m³','m','st']), completionPct: z.number().min(0).max(100), measuredAt: z.iso.datetime(), measuredBy: z.string().trim().min(2).max(150),
       status: z.enum(['Concept','Gecontroleerd']), clashFree: z.boolean(), notes: z.string().trim().max(1_000),
+    }).optional(),
+    meetstaatEvidence: z.object({
+      sourceCalculationId: z.uuid(),
+      measurements: z.array(z.object({ boqItemId:z.uuid(), cumulativeQuantity:z.number().nonnegative().max(1_000_000_000) })).min(1).max(20_000),
+      itemCount: z.number().int().positive().max(20_000), completionPct:z.number().min(0).max(100),
+      measuredAt:z.iso.datetime(), measuredBy:z.string().trim().min(2).max(150),
+    }).optional(),
+    dailyReportEvidence: z.object({
+      sourceCalculationId:z.uuid(), reportIds:z.array(z.uuid()).max(20_000), productionEntryIds:z.array(z.uuid()).max(50_000),
+      reportCount:z.number().int().nonnegative().max(20_000), productionEntryCount:z.number().int().nonnegative().max(50_000),
+      completionPct:z.number().min(0).max(100), approvedThrough:z.iso.date(), calculatedAt:z.iso.datetime(),
     }).optional(),
   })).min(1).max(500),
   changeOrderIds: z.array(z.uuid()).max(500),

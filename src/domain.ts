@@ -1041,6 +1041,15 @@ export interface DailyResourceEntry {
   unit: string
 }
 
+export interface DailyProductionEntry {
+  id: string
+  workPackageId: string
+  boqItemId: string
+  description: string
+  quantity: number
+  unit: string
+}
+
 export interface DailyReport {
   id: string
   projectId: string
@@ -1053,6 +1062,7 @@ export interface DailyReport {
   subcontractors: string[]
   materials: DailyResourceEntry[]
   machines: DailyResourceEntry[]
+  productionEntries?: DailyProductionEntry[]
   deliveries: string
   delays: string
   problems: string
@@ -1657,6 +1667,31 @@ export type ChangeOrderInput = Pick<ChangeOrder, 'dailyReportId' | 'workPackageI
 
 export type ProgressMeasurementMethod = 'Handmatig' | 'Meetstaat' | 'Dagrapporten' | 'BIM'
 
+export interface QuantityProgressMeasurement {
+  boqItemId: string
+  cumulativeQuantity: number
+}
+
+export interface MeetstaatProgressEvidence {
+  sourceCalculationId: string
+  measurements: QuantityProgressMeasurement[]
+  itemCount: number
+  completionPct: number
+  measuredAt: string
+  measuredBy: string
+}
+
+export interface DailyReportProgressEvidence {
+  sourceCalculationId: string
+  reportIds: string[]
+  productionEntryIds: string[]
+  reportCount: number
+  productionEntryCount: number
+  completionPct: number
+  approvedThrough: string
+  calculatedAt: string
+}
+
 export interface BimProgressEvidence {
   modelId: string
   modelName: string
@@ -1684,6 +1719,8 @@ export interface ProgressStatementLineInput {
   comment?: string
   evidenceDocumentIds?: string[]
   bimEvidence?: BimProgressEvidence
+  meetstaatEvidence?: MeetstaatProgressEvidence
+  dailyReportEvidence?: DailyReportProgressEvidence
 }
 
 export interface ProgressStatementLine extends ProgressStatementLineInput {

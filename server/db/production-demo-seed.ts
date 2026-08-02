@@ -409,6 +409,28 @@ async function seedDemoProjectExpansion(client: PoolClient, tenantId: string) {
   return true
 }
 
+async function seedDailyProductionUpgrade(client: PoolClient, tenantId: string) {
+  const { calculation, workPackages } = projectDemoData()
+  const workPackage = workPackages[0]
+  const chapter = calculation.chapters.find(item => Number(item.code) === Number(workPackage?.code))
+  const item = calculation.items.find(candidate => candidate.chapterId === chapter?.id && candidate.postType !== 'Tekstregel' && candidate.postType !== 'Subtotaal')
+  if (!workPackage || !item) return false
+  const productionEntry = {
+    id: deterministicUuid('production-entry', 'oosterweel-20260914-1'),
+    workPackageId: workPackage.id,
+    boqItemId: deterministicUuid('item', item.id),
+    description: item.description,
+    quantity: Math.max(1, Math.round(item.quantity * .08 * 100) / 100),
+    unit: item.unit,
+  }
+  const updated = await client.query(
+    `UPDATE daily_reports SET production_entries=$3
+      WHERE tenant_id=$1 AND id=$2 AND production_entries='[]'::jsonb`,
+    [tenantId, DEMO_EXPANSION_REPORT_ID, JSON.stringify([productionEntry])],
+  )
+  return Boolean(updated.rowCount)
+}
+
 async function seedResourceConflictProject(client: PoolClient, tenantId: string) {
   const primaryProject = await client.query<{ id: string }>(
     'SELECT id FROM projects WHERE tenant_id=$1 AND id=$2',
@@ -541,13 +563,14 @@ export async function ensureProductionDemoData(pool: Pool, context: RequestConte
     const isEmpty = Number(existing.rows[0]?.count ?? 0) === 0
     if (isEmpty) await seedEmptyTenant(client, context.tenantId)
     const expanded = await seedDemoProjectExpansion(client, context.tenantId)
+    const dailyProduction = await seedDailyProductionUpgrade(client, context.tenantId)
     const fullEnvironment = await seedFullProductionDemo(client, context.tenantId, storage)
     const resourceConflictProject = await seedResourceConflictProject(client, context.tenantId)
     const calculationVersions = await seedDemoCalculationVersions(client, context.tenantId)
-    if (isEmpty || expanded || fullEnvironment || resourceConflictProject || calculationVersions) await client.query('UPDATE tenants SET data_revision=data_revision+1 WHERE id=$1', [context.tenantId])
+    if (isEmpty || expanded || dailyProduction || fullEnvironment || resourceConflictProject || calculationVersions) await client.query('UPDATE tenants SET data_revision=data_revision+1 WHERE id=$1', [context.tenantId])
     await client.query('COMMIT')
     initializedTenants.add(context.tenantId)
-    return isEmpty || expanded || fullEnvironment || resourceConflictProject || calculationVersions
+    return isEmpty || expanded || dailyProduction || fullEnvironment || resourceConflictProject || calculationVersions
   } catch (error) {
     await client.query('ROLLBACK')
     throw error

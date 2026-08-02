@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto'
 import type { Pool, PoolClient, QueryResultRow } from 'pg'
-import { DEFAULT_COST_LIBRARY_VERSION_ID, changeOrderTotal, directCost, normalizeTenderDossier, postCalculationAnalysis, scenarioDirectCost, scenarioSellingTotal, sellingTotal, unitConversionFactor, type BoqChapter, type BoqImportPreview, type BoqItem, type BoqPriceAdjustment, type BouwFlowState, type BulkCostUpdateResult, type BulkPriceAdjustmentResult, type Calculation, type CalculationScenario, type CalculationTemplate, type CalculationVersion, type ChangeOrder, type ChangeOrderInput, type CommitmentSettlementInput, type CompanyBranch, type CompanyBranchInput, type CompanyUser, type CompanyUserAccessInput, type CompanyUserProfileInput, type CostCategory, type CostLibrary, type CostLibraryItem, type CostLibraryVersion, type DailyLaborEntry, type DailyReport, type DailyReportInput, type DailyResourceEntry, type DocumentDistributionInput, type DocumentIntegrityResult, type DocumentMetadataInput, type DocumentRecipient, type DocumentRevisionInput, type DocumentUploadInput, type DocumentVersion, type IntercompanyCharge, type IntercompanyChargeInput, type LegalEntity, type LegalEntityFinancialInput, type LegalEntityInput, type MailboxLinkInput, type MailboxMessage, type MailboxOverview, type Opportunity, type OpportunityDetailsInput, type OpportunityGoNoGo, type OpportunityGoNoGoInput, type Organization, type OrganizationBillingInput, type PaymentRegistrationInput, type PeppolAcceptanceReleaseInput, type PeppolAcceptanceRun, type PeppolAcceptanceStep, type PeppolAlert, type PeppolDelivery, type PeppolIntegrationCheck, type PeppolNotification, type PeppolNotificationChannel, type PeppolNotificationSettings, type PeppolNotificationSettingsInput, type PeppolNotificationTestInput, type PeppolNotificationTestResult, type PeppolProductionGate, type PeppolValidationReport, type PeppolValidationReportInput, type PlanningActivity, type PostCalculationFeedbackInput, type ProcurementRequest, type ProcurementRequestInput, type ProgressStatement, type ProgressStatementInput, type Project, type ProjectBaselineInput, type ProjectCompanyAssignmentInput, type ProjectCost, type ProjectCostInput, type ProjectDetailsInput, type ProjectDocument, type ProjectForecast, type ProjectForecastInput, type ProjectHandover, type ProjectPlanning, type ProjectPlanningInput, type ProjectStartupInput, type ProjectWorkPackage, type PurchaseInvoiceMatchInput, type PurchaseOrder, type PurchaseReceiptInput, type QhseCertificate, type QhseCertificateInput, type QhseFinding, type QhseInspection, type QhseInspectionInput, type Quote, type QuoteContent, type QuoteSnapshot, type SalesInvoice, type SalesInvoiceInput, type SalesInvoiceIssueInput, type SitePhoto, type SitePhotoInput, type Supplier, type SupplierInput, type SupplierQuoteInput, type UnitConversion, type UnitDefinition, type WorkflowDefinition, type WorkflowDefinitionInput } from '../../src/domain.js'
+import { DEFAULT_COST_LIBRARY_VERSION_ID, changeOrderTotal, directCost, normalizeTenderDossier, postCalculationAnalysis, scenarioDirectCost, scenarioSellingTotal, sellingTotal, unitConversionFactor, type BoqChapter, type BoqImportPreview, type BoqItem, type BoqPriceAdjustment, type BouwFlowState, type BulkCostUpdateResult, type BulkPriceAdjustmentResult, type Calculation, type CalculationScenario, type CalculationTemplate, type CalculationVersion, type ChangeOrder, type ChangeOrderInput, type CommitmentSettlementInput, type CompanyBranch, type CompanyBranchInput, type CompanyUser, type CompanyUserAccessInput, type CompanyUserProfileInput, type CostCategory, type CostLibrary, type CostLibraryItem, type CostLibraryVersion, type DailyLaborEntry, type DailyProductionEntry, type DailyReport, type DailyReportInput, type DailyResourceEntry, type DocumentDistributionInput, type DocumentIntegrityResult, type DocumentMetadataInput, type DocumentRecipient, type DocumentRevisionInput, type DocumentUploadInput, type DocumentVersion, type IntercompanyCharge, type IntercompanyChargeInput, type LegalEntity, type LegalEntityFinancialInput, type LegalEntityInput, type MailboxLinkInput, type MailboxMessage, type MailboxOverview, type Opportunity, type OpportunityDetailsInput, type OpportunityGoNoGo, type OpportunityGoNoGoInput, type Organization, type OrganizationBillingInput, type PaymentRegistrationInput, type PeppolAcceptanceReleaseInput, type PeppolAcceptanceRun, type PeppolAcceptanceStep, type PeppolAlert, type PeppolDelivery, type PeppolIntegrationCheck, type PeppolNotification, type PeppolNotificationChannel, type PeppolNotificationSettings, type PeppolNotificationSettingsInput, type PeppolNotificationTestInput, type PeppolNotificationTestResult, type PeppolProductionGate, type PeppolValidationReport, type PeppolValidationReportInput, type PlanningActivity, type PostCalculationFeedbackInput, type ProcurementRequest, type ProcurementRequestInput, type ProgressStatement, type ProgressStatementInput, type Project, type ProjectBaselineInput, type ProjectCompanyAssignmentInput, type ProjectCost, type ProjectCostInput, type ProjectDetailsInput, type ProjectDocument, type ProjectForecast, type ProjectForecastInput, type ProjectHandover, type ProjectPlanning, type ProjectPlanningInput, type ProjectStartupInput, type ProjectWorkPackage, type PurchaseInvoiceMatchInput, type PurchaseOrder, type PurchaseReceiptInput, type QhseCertificate, type QhseCertificateInput, type QhseFinding, type QhseInspection, type QhseInspectionInput, type Quote, type QuoteContent, type QuoteSnapshot, type SalesInvoice, type SalesInvoiceInput, type SalesInvoiceIssueInput, type SitePhoto, type SitePhotoInput, type Supplier, type SupplierInput, type SupplierQuoteInput, type UnitConversion, type UnitDefinition, type WorkflowDefinition, type WorkflowDefinitionInput } from '../../src/domain.js'
+import { buildDailyReportEvidence, buildMeetstaatEvidence, workPackageBoqItems } from '../../src/progress-measurements.js'
 import { defaultWorkflowDefinitions } from '../../src/administration.js'
 import type { InvoiceExportContext } from '../../src/invoice-export.js'
 import { boqItemQuantity, effectiveBoqValues, unitCost } from '../../src/domain.js'
@@ -136,7 +137,7 @@ interface ProjectRow extends QueryResultRow {
 
 interface DailyReportRow extends QueryResultRow {
   id: string; project_id: string; report_date: string | Date; work_package_id: string | null; weather: DailyReport['weather']; temperature: string
-  activities: string; labor_entries: DailyLaborEntry[] | string; subcontractors: string[] | string; materials: DailyResourceEntry[] | string; machines: DailyResourceEntry[] | string
+  activities: string; labor_entries: DailyLaborEntry[] | string; subcontractors: string[] | string; materials: DailyResourceEntry[] | string; machines: DailyResourceEntry[] | string; production_entries: DailyProductionEntry[] | string
   deliveries: string; delays: string; problems: string; visitors: string; notes: string; status: DailyReport['status']; created_at: string | Date
   submitted_at: string | Date | null; signed_by: string | null; signed_at: string | Date | null
 }
@@ -381,7 +382,7 @@ function mapCompanyBranch(row: CompanyBranchRow): CompanyBranch {
 }
 
 function mapDailyReport(row: DailyReportRow): DailyReport {
-  return { id: row.id, projectId: row.project_id, date: dateOnly(row.report_date), workPackageId: row.work_package_id ?? undefined, weather: row.weather, temperature: Number(row.temperature), activities: row.activities, laborEntries: jsonValue(row.labor_entries), subcontractors: jsonValue(row.subcontractors), materials: jsonValue(row.materials), machines: jsonValue(row.machines), deliveries: row.deliveries, delays: row.delays, problems: row.problems, visitors: row.visitors, notes: row.notes, status: row.status, createdAt: iso(row.created_at), submittedAt: row.submitted_at ? iso(row.submitted_at) : undefined, signedBy: row.signed_by ?? undefined, signedAt: row.signed_at ? iso(row.signed_at) : undefined }
+  return { id: row.id, projectId: row.project_id, date: dateOnly(row.report_date), workPackageId: row.work_package_id ?? undefined, weather: row.weather, temperature: Number(row.temperature), activities: row.activities, laborEntries: jsonValue(row.labor_entries), subcontractors: jsonValue(row.subcontractors), materials: jsonValue(row.materials), machines: jsonValue(row.machines), productionEntries: jsonValue(row.production_entries ?? []), deliveries: row.deliveries, delays: row.delays, problems: row.problems, visitors: row.visitors, notes: row.notes, status: row.status, createdAt: iso(row.created_at), submittedAt: row.submitted_at ? iso(row.submitted_at) : undefined, signedBy: row.signed_by ?? undefined, signedAt: row.signed_at ? iso(row.signed_at) : undefined }
 }
 
 function mapSitePhoto(row: SitePhotoRow): SitePhoto {
@@ -2627,12 +2628,13 @@ export class BouwFlowRepository {
   async createDailyReport(context: RequestContext, projectId: string, input: DailyReportInput): Promise<DailyReport> {
     return this.transaction(async client => {
       await this.validateDailyReportProject(client, context.tenantId, projectId, input.workPackageId)
+      await this.validateDailyProductionEntries(client, context.tenantId, projectId, input.productionEntries ?? [])
       const normalizedInput = await this.normalizeDailyReportEmployees(client, context.tenantId, projectId, input)
       const existing = await client.query('SELECT id FROM daily_reports WHERE tenant_id=$1 AND project_id=$2 AND report_date=$3', [context.tenantId, projectId, input.date])
       if (existing.rowCount) throw new RepositoryError('Voor deze projectdatum bestaat al een dagrapport', 409)
       const report: DailyReport = { id: randomUUID(), projectId, ...normalizedInput, status: 'Concept', createdAt: new Date().toISOString() }
-      await client.query(`INSERT INTO daily_reports (tenant_id,id,project_id,report_date,work_package_id,weather,temperature,activities,labor_entries,subcontractors,materials,machines,deliveries,delays,problems,visitors,notes,status,created_at)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)`, [context.tenantId, report.id, projectId, report.date, report.workPackageId ?? null, report.weather, report.temperature, report.activities, JSON.stringify(report.laborEntries), JSON.stringify(report.subcontractors), JSON.stringify(report.materials), JSON.stringify(report.machines), report.deliveries, report.delays, report.problems, report.visitors, report.notes, report.status, report.createdAt])
+      await client.query(`INSERT INTO daily_reports (tenant_id,id,project_id,report_date,work_package_id,weather,temperature,activities,labor_entries,subcontractors,materials,machines,production_entries,deliveries,delays,problems,visitors,notes,status,created_at)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)`, [context.tenantId, report.id, projectId, report.date, report.workPackageId ?? null, report.weather, report.temperature, report.activities, JSON.stringify(report.laborEntries), JSON.stringify(report.subcontractors), JSON.stringify(report.materials), JSON.stringify(report.machines), JSON.stringify(report.productionEntries ?? []), report.deliveries, report.delays, report.problems, report.visitors, report.notes, report.status, report.createdAt])
       await this.audit(client, context, 'daily_report', report.id, 'created', null, report)
       return report
     })
@@ -2645,10 +2647,11 @@ export class BouwFlowRepository {
       const current = mapDailyReport(result.rows[0])
       if (current.status !== 'Concept') throw new RepositoryError('Alleen een conceptdagrapport kan worden gewijzigd', 409)
       await this.validateDailyReportProject(client, context.tenantId, current.projectId, input.workPackageId)
+      await this.validateDailyProductionEntries(client, context.tenantId, current.projectId, input.productionEntries ?? [])
       const normalizedInput = await this.normalizeDailyReportEmployees(client, context.tenantId, current.projectId, input)
       const duplicate = await client.query('SELECT id FROM daily_reports WHERE tenant_id=$1 AND project_id=$2 AND report_date=$3 AND id<>$4', [context.tenantId, current.projectId, input.date, reportId])
       if (duplicate.rowCount) throw new RepositoryError('Voor deze projectdatum bestaat al een dagrapport', 409)
-      await client.query(`UPDATE daily_reports SET report_date=$3,work_package_id=$4,weather=$5,temperature=$6,activities=$7,labor_entries=$8,subcontractors=$9,materials=$10,machines=$11,deliveries=$12,delays=$13,problems=$14,visitors=$15,notes=$16 WHERE tenant_id=$1 AND id=$2`, [context.tenantId, reportId, normalizedInput.date, normalizedInput.workPackageId ?? null, normalizedInput.weather, normalizedInput.temperature, normalizedInput.activities, JSON.stringify(normalizedInput.laborEntries), JSON.stringify(normalizedInput.subcontractors), JSON.stringify(normalizedInput.materials), JSON.stringify(normalizedInput.machines), normalizedInput.deliveries, normalizedInput.delays, normalizedInput.problems, normalizedInput.visitors, normalizedInput.notes])
+      await client.query(`UPDATE daily_reports SET report_date=$3,work_package_id=$4,weather=$5,temperature=$6,activities=$7,labor_entries=$8,subcontractors=$9,materials=$10,machines=$11,production_entries=$12,deliveries=$13,delays=$14,problems=$15,visitors=$16,notes=$17 WHERE tenant_id=$1 AND id=$2`, [context.tenantId, reportId, normalizedInput.date, normalizedInput.workPackageId ?? null, normalizedInput.weather, normalizedInput.temperature, normalizedInput.activities, JSON.stringify(normalizedInput.laborEntries), JSON.stringify(normalizedInput.subcontractors), JSON.stringify(normalizedInput.materials), JSON.stringify(normalizedInput.machines), JSON.stringify(normalizedInput.productionEntries ?? []), normalizedInput.deliveries, normalizedInput.delays, normalizedInput.problems, normalizedInput.visitors, normalizedInput.notes])
       const updated: DailyReport = { ...current, ...normalizedInput }
       await this.audit(client, context, 'daily_report', reportId, 'updated', current, updated)
       return updated
@@ -4079,6 +4082,23 @@ export class BouwFlowRepository {
     if (workPackageId && !this.mapProject(result.rows[0]).workPackages.some(workPackage => workPackage.id === workPackageId)) throw new RepositoryError('Werkpakket behoort niet tot dit project', 409)
   }
 
+  private async validateDailyProductionEntries(client: SqlClient, tenantId: string, projectId: string, entries: DailyProductionEntry[]) {
+    if (!entries.length) return
+    const projectResult = await client.query<ProjectRow>('SELECT * FROM projects WHERE tenant_id=$1 AND id=$2', [tenantId, projectId])
+    if (!projectResult.rowCount) throw new RepositoryError('Project niet gevonden', 404)
+    const project = this.mapProject(projectResult.rows[0])
+    const calculation = await this.getCalculation(client, tenantId, project.sourceCalculationId)
+    if (!calculation) throw new RepositoryError('De broncalculatie voor productiehoeveelheden bestaat niet', 409)
+    if (new Set(entries.map(entry => entry.id)).size !== entries.length) throw new RepositoryError('Een productieprestatie komt meer dan eenmaal voor', 409)
+    for (const entry of entries) {
+      const workPackage = project.workPackages.find(item => item.id === entry.workPackageId)
+      if (!workPackage) throw new RepositoryError('Productieprestatie verwijst naar een ongeldig werkpakket', 409)
+      const item = workPackageBoqItems(calculation, workPackage).find(candidate => candidate.id === entry.boqItemId)
+      if (!item) throw new RepositoryError(`Calculatiepost van productieprestatie behoort niet tot ${workPackage.code}`, 409)
+      if (item.unit !== entry.unit) throw new RepositoryError(`Eenheid van productieprestatie ${item.code} komt niet overeen met de calculatie`, 409)
+    }
+  }
+
   private async validateChangeOrderLinks(client: SqlClient, tenantId: string, projectId: string, input: ChangeOrderInput) {
     await this.validateDailyReportProject(client, tenantId, projectId, input.workPackageId)
     if (input.dailyReportId) {
@@ -4103,10 +4123,34 @@ export class BouwFlowRepository {
     const previous = previousResult.rowCount ? mapProgressStatement(previousResult.rows[0]) : undefined
     if (previous && input.periodStart <= previous.periodEnd) throw new RepositoryError('De nieuwe periode moet na de vorige ingediende periode starten', 409)
     const previousLines = new Map(previous?.lines.map(line => [line.workPackageId, line]) ?? [])
+    const hasAutomatedLines = input.lines.some(line => line.measurementMethod === 'Meetstaat' || line.measurementMethod === 'Dagrapporten')
+    const calculation = hasAutomatedLines ? await this.getCalculation(client, tenantId, project.sourceCalculationId) : undefined
+    if (hasAutomatedLines && !calculation) throw new RepositoryError('De broncalculatie voor automatische voortgang bestaat niet', 409)
+    const approvedReportResult = input.lines.some(line => line.measurementMethod === 'Dagrapporten')
+      ? await client.query<DailyReportRow>("SELECT * FROM daily_reports WHERE tenant_id=$1 AND project_id=$2 AND status='Ondertekend' AND report_date<=$3 ORDER BY report_date", [tenantId, projectId, input.periodEnd])
+      : undefined
+    const approvedReports = approvedReportResult?.rows.map(mapDailyReport) ?? []
     const totalBudget = project.workPackages.reduce((sum, workPackage) => sum + workPackage.budget, 0)
     let allocatedContractValue = 0
     const lines = project.workPackages.map((workPackage, index) => {
-      const lineInput = inputLines.get(workPackage.id)!
+      let lineInput = inputLines.get(workPackage.id)!
+      if (lineInput.measurementMethod === 'Meetstaat') {
+        const evidence = lineInput.meetstaatEvidence
+        if (!evidence) throw new RepositoryError(`Meetstaatmeting ontbreekt voor ${workPackage.code}`, 409)
+        if (evidence.sourceCalculationId !== project.sourceCalculationId) throw new RepositoryError(`Meetstaatmeting voor ${workPackage.code} gebruikt niet de projectcalculatie`, 409)
+        const linkedItems = workPackageBoqItems(calculation, workPackage)
+        if (!linkedItems.length) throw new RepositoryError(`Geen calculatieposten gekoppeld aan werkpakket ${workPackage.code}`, 409)
+        if (new Set(evidence.measurements.map(item => item.boqItemId)).size !== evidence.measurements.length) throw new RepositoryError(`Meetstaatmeting voor ${workPackage.code} bevat dubbele posten`, 409)
+        const linkedIds = new Set(linkedItems.map(item => item.id))
+        if (evidence.measurements.length !== linkedItems.length || evidence.measurements.some(item => !linkedIds.has(item.boqItemId))) throw new RepositoryError(`Meetstaatmeting voor ${workPackage.code} is niet volledig gekoppeld aan de calculatie`, 409)
+        const recalculatedEvidence = buildMeetstaatEvidence(calculation!, workPackage, evidence.measurements, evidence.measuredBy, evidence.measuredAt)
+        lineInput = { ...lineInput, cumulativeProgressPct:recalculatedEvidence.completionPct, meetstaatEvidence:recalculatedEvidence, dailyReportEvidence:undefined, bimEvidence:undefined }
+      }
+      if (lineInput.measurementMethod === 'Dagrapporten') {
+        const evidence = buildDailyReportEvidence(calculation!, project, workPackage, approvedReports, input.periodEnd)
+        if (!evidence.productionEntryCount) throw new RepositoryError(`Geen goedgekeurde productieprestaties gevonden voor ${workPackage.code} tot ${input.periodEnd}`, 409)
+        lineInput = { ...lineInput, cumulativeProgressPct:evidence.completionPct, dailyReportEvidence:evidence, meetstaatEvidence:undefined, bimEvidence:undefined }
+      }
       if (lineInput.measurementMethod === 'BIM') {
         const evidence = lineInput.bimEvidence
         if (!evidence) throw new RepositoryError(`BIM-meetbewijs ontbreekt voor ${workPackage.code}`, 409)

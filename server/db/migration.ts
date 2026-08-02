@@ -402,6 +402,7 @@ CREATE TABLE IF NOT EXISTS daily_reports (
   subcontractors jsonb NOT NULL DEFAULT '[]',
   materials jsonb NOT NULL DEFAULT '[]',
   machines jsonb NOT NULL DEFAULT '[]',
+  production_entries jsonb NOT NULL DEFAULT '[]',
   deliveries text NOT NULL DEFAULT '',
   delays text NOT NULL DEFAULT '',
   problems text NOT NULL DEFAULT '',
@@ -416,6 +417,8 @@ CREATE TABLE IF NOT EXISTS daily_reports (
   UNIQUE (tenant_id, project_id, report_date),
   FOREIGN KEY (tenant_id, project_id) REFERENCES projects(tenant_id, id)
 );
+
+ALTER TABLE daily_reports ADD COLUMN IF NOT EXISTS production_entries jsonb NOT NULL DEFAULT '[]';
 
 CREATE TABLE IF NOT EXISTS site_photos (
   tenant_id uuid NOT NULL REFERENCES tenants(id),

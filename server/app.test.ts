@@ -329,9 +329,10 @@ describe('BouwFlow API', () => {
       laborEntries: [{ id: '30000000-0000-4000-8000-000000000001', employeeName: 'Jan Peeters', role: 'Grondwerker', hours: 8, overtimeHours: 1 }],
       subcontractors: ['Signalisatie Janssens'], materials: [{ id: '30000000-0000-4000-8000-000000000002', description: 'Steenslag', quantity: 24, unit: 'ton' }],
       machines: [{ id: '30000000-0000-4000-8000-000000000003', description: 'Rupskraan 25 ton', quantity: 8, unit: 'uur' }], deliveries: 'Twee vrachten steenslag ontvangen.', delays: '', problems: '', visitors: 'Opdrachtgever om 10:00', notes: '',
+      productionEntries: [{ id:'30000000-0000-4000-8000-000000000004', workPackageId:awardedProject.workPackages[0].id, boqItemId:item.id, description:'Grondwerken', quantity:30, unit:'m³' }],
     }
     const dailyReportResponse = await app.inject({ method: 'POST', url: `/api/projects/${awardedProject.id}/daily-reports`, payload: dailyReportPayload })
-    expect(dailyReportResponse.statusCode).toBe(201)
+    expect(dailyReportResponse.statusCode,dailyReportResponse.body).toBe(201)
     expect(dailyReportResponse.json()).toMatchObject({ projectId: awardedProject.id, status: 'Concept', weather: 'Regen', laborEntries: [expect.objectContaining({ employeeName: 'Jan Peeters', overtimeHours: 1 })] })
     const duplicateReportResponse = await app.inject({ method: 'POST', url: `/api/projects/${awardedProject.id}/daily-reports`, payload: dailyReportPayload })
     expect(duplicateReportResponse.statusCode).toBe(409)
@@ -402,6 +403,12 @@ describe('BouwFlow API', () => {
     expect(progressStatementResponse.statusCode).toBe(201)
     expect(progressStatementResponse.json()).toMatchObject({ projectId: awardedProject.id, status: 'Concept', changeOrderAmount: 16500, retentionPct: 5, certificateReference:'CERT-2027-01',advanceRecoveryAmount:2500 })
     expect(progressStatementResponse.json().lines[0]).toMatchObject({ workPackageId: awardedProject.workPackages[0].id, cumulativeProgressPct: 25, previousCumulative: 0,measurementMethod:'BIM',bimEvidence:expect.objectContaining({status:'Gecontroleerd',elementCount:2}) })
+    const meetstaatProgressResponse = await app.inject({ method:'PATCH', url:`/api/progress-statements/${progressStatementResponse.json().id}`, payload:{ ...progressStatementPayload, lines:[{ workPackageId:awardedProject.workPackages[0].id, cumulativeProgressPct:1, measurementMethod:'Meetstaat', meetstaatEvidence:{ sourceCalculationId:calculation.id, measurements:[{boqItemId:item.id,cumulativeQuantity:45}], itemCount:1, completionPct:1, measuredAt:'2027-01-31T09:00:00.000Z', measuredBy:'Lena Vermeulen' } }] } })
+    expect(meetstaatProgressResponse.statusCode,meetstaatProgressResponse.body).toBe(200)
+    expect(meetstaatProgressResponse.json().lines[0]).toMatchObject({ measurementMethod:'Meetstaat', cumulativeProgressPct:45, meetstaatEvidence:expect.objectContaining({itemCount:1,completionPct:45}) })
+    const dailyProgressResponse = await app.inject({ method:'PATCH', url:`/api/progress-statements/${progressStatementResponse.json().id}`, payload:{ ...progressStatementPayload, lines:[{ workPackageId:awardedProject.workPackages[0].id, cumulativeProgressPct:99, measurementMethod:'Dagrapporten' }] } })
+    expect(dailyProgressResponse.statusCode,dailyProgressResponse.body).toBe(200)
+    expect(dailyProgressResponse.json().lines[0]).toMatchObject({ measurementMethod:'Dagrapporten', cumulativeProgressPct:30, dailyReportEvidence:expect.objectContaining({reportCount:1,productionEntryCount:1,completionPct:30}) })
     const updatedProgressStatementResponse = await app.inject({ method: 'PATCH', url: `/api/progress-statements/${progressStatementResponse.json().id}`, payload: { ...progressStatementPayload, lines: [{ workPackageId: awardedProject.workPackages[0].id, cumulativeProgressPct: 30 }], priceRevisionAmount: 1200 } })
     expect(updatedProgressStatementResponse.statusCode).toBe(200)
     expect(updatedProgressStatementResponse.json().workAmount).toBeGreaterThan(0)
