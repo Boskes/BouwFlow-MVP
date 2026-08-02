@@ -960,6 +960,47 @@ CREATE TABLE IF NOT EXISTS user_preferences (
   FOREIGN KEY (tenant_id, user_id) REFERENCES users(tenant_id, id)
 );
 
+CREATE TABLE IF NOT EXISTS mailbox_messages (
+  tenant_id uuid NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  id uuid NOT NULL,
+  provider_message_id text NOT NULL,
+  internet_message_id text,
+  conversation_id text,
+  correlation_key text,
+  direction text NOT NULL CHECK (direction IN ('Inkomend','Uitgaand')),
+  from_name text NOT NULL DEFAULT '',
+  from_address text NOT NULL DEFAULT '',
+  to_recipients jsonb NOT NULL DEFAULT '[]',
+  cc_recipients jsonb NOT NULL DEFAULT '[]',
+  subject text NOT NULL,
+  body_preview text NOT NULL DEFAULT '',
+  received_at timestamptz,
+  sent_at timestamptz,
+  is_read boolean NOT NULL DEFAULT false,
+  has_attachments boolean NOT NULL DEFAULT false,
+  web_link text,
+  organization_id uuid,
+  opportunity_id uuid,
+  project_id uuid,
+  synchronized_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (tenant_id,id),
+  UNIQUE (tenant_id,provider_message_id),
+  FOREIGN KEY (tenant_id,organization_id) REFERENCES organizations(tenant_id,id) ON DELETE SET NULL,
+  FOREIGN KEY (tenant_id,opportunity_id) REFERENCES opportunities(tenant_id,id) ON DELETE SET NULL,
+  FOREIGN KEY (tenant_id,project_id) REFERENCES projects(tenant_id,id) ON DELETE SET NULL
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_mailbox_correlation ON mailbox_messages(tenant_id,correlation_key) WHERE correlation_key IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_mailbox_tenant_date ON mailbox_messages(tenant_id,COALESCE(received_at,sent_at) DESC);
+
+CREATE TABLE IF NOT EXISTS mailbox_sync_state (
+  tenant_id uuid PRIMARY KEY REFERENCES tenants(id) ON DELETE CASCADE,
+  mailbox text NOT NULL,
+  last_synchronized_at timestamptz,
+  last_error text,
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
 CREATE INDEX IF NOT EXISTS idx_opportunities_tenant_stage ON opportunities(tenant_id, stage);
 CREATE INDEX IF NOT EXISTS idx_calculations_tenant_opportunity ON calculations(tenant_id, opportunity_id);
 CREATE INDEX IF NOT EXISTS idx_boq_items_tenant_calculation ON boq_items(tenant_id, calculation_id);

@@ -9,6 +9,7 @@ import { defaultWorkflowDefinitions } from './administration'
 import { invoiceExportReadiness } from './invoice-readiness'
 import type { CrmActivity, DocumentRecordLinkInput, Organization, OrganizationInput, OrganizationRelation, Quote, TenderDossier } from './domain'
 import type { AuditTrailEntry } from './domain'
+import type { MailboxComposeInput, MailboxLinkInput, MailboxOverview } from './domain'
 import type { WorkflowCorrection, WorkflowCorrectionInput } from './domain'
 import type { CloseoutItem, ProjectCloseoutUpdateInput, ServiceRequestInput } from './domain'
 import type { Asset, AssetInput, AssetOperationalInput, InventoryCountInput, InventoryItem, InventoryItemInput, StockMovement, StockMovementInput, Warehouse, WarehouseInput } from './domain'
@@ -787,6 +788,10 @@ export function useBouwFlowStore(tokenProvider?: () => Promise<string | undefine
   }, [api])
 
   const actions = useMemo(() => ({
+    async mailbox():Promise<MailboxOverview>{return api?api.mailbox():{configured:false,mailbox:'',messages:[]}},
+    async synchronizeMailbox():Promise<MailboxOverview>{return api?api.synchronizeMailbox():{configured:false,mailbox:'',messages:[]}},
+    async sendMailboxMessage(input:MailboxComposeInput){return api?api.sendMailboxMessage(input):undefined},
+    async linkMailboxMessage(id:string,input:MailboxLinkInput){return api?api.linkMailboxMessage(id,input):undefined},
     async downloadBimTestModel(id: string) {
       if (api) return remote(() => api.downloadBimTestModel(id), () => undefined)
       const model = getBimProductionTestModel(id)

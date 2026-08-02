@@ -48,7 +48,7 @@ const pagePaths: Record<Page, string> = {
   'cost-library': '/cost-library', projects: '/projects', planning: '/planning', hr: '/hr',
   resources: '/resources', site: '/site', changes: '/change-orders', financial: '/progress-statements',
   control: '/project-control', procurement: '/procurement', cashflow: '/cashflow',
-  'post-calculation': '/post-calculation', documents: '/documents', qhse: '/qhse',
+  'post-calculation': '/post-calculation', documents: '/documents', mailbox: '/mailbox', qhse: '/qhse',
   subcontractors: '/subcontractors', consortia: '/consortia', integrations: '/integrations', ai: '/ai',
   closeout: '/contract-closeout', company: '/company', access: '/settings',
   'client-portal':'/portal/client', 'subcontractor-portal':'/portal/subcontractor', 'supplier-portal':'/portal/supplier',

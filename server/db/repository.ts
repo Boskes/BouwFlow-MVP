@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto'
 import type { Pool, PoolClient, QueryResultRow } from 'pg'
-import { DEFAULT_COST_LIBRARY_VERSION_ID, changeOrderTotal, directCost, normalizeTenderDossier, postCalculationAnalysis, scenarioDirectCost, scenarioSellingTotal, sellingTotal, unitConversionFactor, type BoqChapter, type BoqImportPreview, type BoqItem, type BoqPriceAdjustment, type BouwFlowState, type BulkCostUpdateResult, type BulkPriceAdjustmentResult, type Calculation, type CalculationScenario, type CalculationTemplate, type CalculationVersion, type ChangeOrder, type ChangeOrderInput, type CommitmentSettlementInput, type CompanyBranch, type CompanyBranchInput, type CompanyUser, type CompanyUserAccessInput, type CompanyUserProfileInput, type CostCategory, type CostLibrary, type CostLibraryItem, type CostLibraryVersion, type DailyLaborEntry, type DailyReport, type DailyReportInput, type DailyResourceEntry, type DocumentDistributionInput, type DocumentIntegrityResult, type DocumentMetadataInput, type DocumentRecipient, type DocumentRevisionInput, type DocumentUploadInput, type DocumentVersion, type IntercompanyCharge, type IntercompanyChargeInput, type LegalEntity, type LegalEntityFinancialInput, type LegalEntityInput, type Opportunity, type OpportunityDetailsInput, type OpportunityGoNoGo, type OpportunityGoNoGoInput, type Organization, type OrganizationBillingInput, type PaymentRegistrationInput, type PeppolAcceptanceReleaseInput, type PeppolAcceptanceRun, type PeppolAcceptanceStep, type PeppolAlert, type PeppolDelivery, type PeppolIntegrationCheck, type PeppolNotification, type PeppolNotificationChannel, type PeppolNotificationSettings, type PeppolNotificationSettingsInput, type PeppolNotificationTestInput, type PeppolNotificationTestResult, type PeppolProductionGate, type PeppolValidationReport, type PeppolValidationReportInput, type PlanningActivity, type PostCalculationFeedbackInput, type ProcurementRequest, type ProcurementRequestInput, type ProgressStatement, type ProgressStatementInput, type Project, type ProjectBaselineInput, type ProjectCompanyAssignmentInput, type ProjectCost, type ProjectCostInput, type ProjectDetailsInput, type ProjectDocument, type ProjectForecast, type ProjectForecastInput, type ProjectHandover, type ProjectPlanning, type ProjectPlanningInput, type ProjectStartupInput, type ProjectWorkPackage, type PurchaseInvoiceMatchInput, type PurchaseOrder, type PurchaseReceiptInput, type QhseCertificate, type QhseCertificateInput, type QhseFinding, type QhseInspection, type QhseInspectionInput, type Quote, type QuoteContent, type QuoteSnapshot, type SalesInvoice, type SalesInvoiceInput, type SalesInvoiceIssueInput, type SitePhoto, type SitePhotoInput, type Supplier, type SupplierInput, type SupplierQuoteInput, type UnitConversion, type UnitDefinition, type WorkflowDefinition, type WorkflowDefinitionInput } from '../../src/domain.js'
+import { DEFAULT_COST_LIBRARY_VERSION_ID, changeOrderTotal, directCost, normalizeTenderDossier, postCalculationAnalysis, scenarioDirectCost, scenarioSellingTotal, sellingTotal, unitConversionFactor, type BoqChapter, type BoqImportPreview, type BoqItem, type BoqPriceAdjustment, type BouwFlowState, type BulkCostUpdateResult, type BulkPriceAdjustmentResult, type Calculation, type CalculationScenario, type CalculationTemplate, type CalculationVersion, type ChangeOrder, type ChangeOrderInput, type CommitmentSettlementInput, type CompanyBranch, type CompanyBranchInput, type CompanyUser, type CompanyUserAccessInput, type CompanyUserProfileInput, type CostCategory, type CostLibrary, type CostLibraryItem, type CostLibraryVersion, type DailyLaborEntry, type DailyReport, type DailyReportInput, type DailyResourceEntry, type DocumentDistributionInput, type DocumentIntegrityResult, type DocumentMetadataInput, type DocumentRecipient, type DocumentRevisionInput, type DocumentUploadInput, type DocumentVersion, type IntercompanyCharge, type IntercompanyChargeInput, type LegalEntity, type LegalEntityFinancialInput, type LegalEntityInput, type MailboxLinkInput, type MailboxMessage, type MailboxOverview, type Opportunity, type OpportunityDetailsInput, type OpportunityGoNoGo, type OpportunityGoNoGoInput, type Organization, type OrganizationBillingInput, type PaymentRegistrationInput, type PeppolAcceptanceReleaseInput, type PeppolAcceptanceRun, type PeppolAcceptanceStep, type PeppolAlert, type PeppolDelivery, type PeppolIntegrationCheck, type PeppolNotification, type PeppolNotificationChannel, type PeppolNotificationSettings, type PeppolNotificationSettingsInput, type PeppolNotificationTestInput, type PeppolNotificationTestResult, type PeppolProductionGate, type PeppolValidationReport, type PeppolValidationReportInput, type PlanningActivity, type PostCalculationFeedbackInput, type ProcurementRequest, type ProcurementRequestInput, type ProgressStatement, type ProgressStatementInput, type Project, type ProjectBaselineInput, type ProjectCompanyAssignmentInput, type ProjectCost, type ProjectCostInput, type ProjectDetailsInput, type ProjectDocument, type ProjectForecast, type ProjectForecastInput, type ProjectHandover, type ProjectPlanning, type ProjectPlanningInput, type ProjectStartupInput, type ProjectWorkPackage, type PurchaseInvoiceMatchInput, type PurchaseOrder, type PurchaseReceiptInput, type QhseCertificate, type QhseCertificateInput, type QhseFinding, type QhseInspection, type QhseInspectionInput, type Quote, type QuoteContent, type QuoteSnapshot, type SalesInvoice, type SalesInvoiceInput, type SalesInvoiceIssueInput, type SitePhoto, type SitePhotoInput, type Supplier, type SupplierInput, type SupplierQuoteInput, type UnitConversion, type UnitDefinition, type WorkflowDefinition, type WorkflowDefinitionInput } from '../../src/domain.js'
 import { defaultWorkflowDefinitions } from '../../src/administration.js'
 import type { InvoiceExportContext } from '../../src/invoice-export.js'
 import { boqItemQuantity, effectiveBoqValues, unitCost } from '../../src/domain.js'
@@ -11,6 +11,7 @@ import type { AiAnalysis, AiAnalysisInput, Employee, EmployeeAbsence, EmployeeAb
 import { DevelopmentAiGateway, DevelopmentIntegrationGateway, type AiGateway, type IntegrationGateway } from '../enterprise-gateways.js'
 import type { PeppolTransportResult } from '../peppol/access-point.js'
 import type { PeppolNotificationTarget } from '../peppol/notification.js'
+import type { CentralMailMessage } from '../microsoft365-mail.js'
 
 const workflowCorrectionSequences: Record<WorkflowCorrectionInput['dossierType'], string[]> = {
   opportunity: ['Nieuw','Gekwalificeerd','Go/No-Go','Calculatie','Offerte verstuurd','Onderhandeling','Gewonnen'],
@@ -74,6 +75,11 @@ interface UserEntityAccessRow extends QueryResultRow {
   user_id: string; legal_entity_id: string
 }
 interface UserProjectAccessRow extends QueryResultRow { user_id:string; project_id:string }
+interface MailboxMessageRow extends QueryResultRow {
+  id:string; provider_message_id:string; internet_message_id:string|null; conversation_id:string|null; direction:MailboxMessage['direction']; from_name:string; from_address:string;
+  to_recipients:MailboxMessage['toRecipients']|string; cc_recipients:MailboxMessage['ccRecipients']|string; subject:string; body_preview:string; received_at:string|Date|null; sent_at:string|Date|null;
+  is_read:boolean; has_attachments:boolean; web_link:string|null; organization_id:string|null; opportunity_id:string|null; project_id:string|null; synchronized_at:string|Date
+}
 
 interface OpportunityRow extends QueryResultRow {
   id: string; project_number: string; title: string; organization_id: string; location: string; deadline: string | Date
@@ -355,6 +361,14 @@ function mapLegalEntity(row: LegalEntityRow): LegalEntity {
 
 function mapOrganization(row: OrganizationRow): Organization {
   return { id: row.id, name: row.name, type: row.type, contactName: row.contact_name, email: row.email, vatNumber: row.vat_number, addressLine: row.address_line, postalCode: row.postal_code, city: row.city, countryCode: row.country_code, peppolEndpointId: row.peppol_endpoint_id, peppolSchemeId: row.peppol_scheme_id, roles: jsonValue<NonNullable<Organization['roles']>>(row.roles ?? []), contacts: jsonValue<NonNullable<Organization['contacts']>>(row.contacts ?? []), addresses: jsonValue<NonNullable<Organization['addresses']>>(row.addresses ?? []), activities: jsonValue<NonNullable<Organization['activities']>>(row.activities ?? []), relations: jsonValue<NonNullable<Organization['relations']>>(row.relations ?? []) }
+}
+
+function mapMailboxMessage(row: MailboxMessageRow): MailboxMessage {
+  return { id:row.id, providerMessageId:row.provider_message_id, internetMessageId:row.internet_message_id??undefined, conversationId:row.conversation_id??undefined,
+    direction:row.direction, fromName:row.from_name, fromAddress:row.from_address, toRecipients:jsonValue(row.to_recipients), ccRecipients:jsonValue(row.cc_recipients),
+    subject:row.subject, bodyPreview:row.body_preview, receivedAt:row.received_at?iso(row.received_at):undefined, sentAt:row.sent_at?iso(row.sent_at):undefined,
+    isRead:row.is_read, hasAttachments:row.has_attachments, webLink:row.web_link??undefined, organizationId:row.organization_id??undefined, opportunityId:row.opportunity_id??undefined,
+    projectId:row.project_id??undefined, synchronizedAt:iso(row.synchronized_at) }
 }
 
 function mapIntercompanyCharge(row: IntercompanyChargeRow): IntercompanyCharge {
@@ -4100,6 +4114,57 @@ export class BouwFlowRepository {
     const grossAmount = cents(workAmount + changeOrderAmount + input.priceRevisionAmount)
     const retentionAmount = cents(grossAmount * input.retentionPct / 100)
     return { lines, workAmount, changeOrderAmount, grossAmount, retentionAmount, netAmount: cents(grossAmount - retentionAmount) }
+  }
+
+  async mailboxOverview(context: RequestContext, configured: boolean, mailbox = ''): Promise<MailboxOverview> {
+    const [messages, sync] = await Promise.all([
+      this.pool.query<MailboxMessageRow>('SELECT * FROM mailbox_messages WHERE tenant_id=$1 ORDER BY COALESCE(received_at,sent_at,synchronized_at) DESC LIMIT 500', [context.tenantId]),
+      this.pool.query<{last_synchronized_at:string|Date|null;last_error:string|null}>('SELECT last_synchronized_at,last_error FROM mailbox_sync_state WHERE tenant_id=$1', [context.tenantId]),
+    ])
+    return { configured, mailbox, lastSynchronizedAt:sync.rows[0]?.last_synchronized_at?iso(sync.rows[0].last_synchronized_at):undefined, lastSyncError:sync.rows[0]?.last_error??undefined, messages:messages.rows.map(mapMailboxMessage) }
+  }
+
+  async synchronizeMailbox(context: RequestContext, mailbox: string, messages: CentralMailMessage[]) {
+    const [organizations, opportunities, projects] = await Promise.all([
+      this.pool.query<OrganizationRow>('SELECT * FROM organizations WHERE tenant_id=$1', [context.tenantId]),
+      this.pool.query<OpportunityRow>('SELECT * FROM opportunities WHERE tenant_id=$1', [context.tenantId]),
+      this.pool.query<ProjectRow>('SELECT * FROM projects WHERE tenant_id=$1', [context.tenantId]),
+    ])
+    for (const message of messages) {
+      const searchable = `${message.subject} ${message.bodyPreview}`.toLocaleLowerCase()
+      const project = projects.rows.find(item => searchable.includes(item.number.toLocaleLowerCase()))
+      const opportunity = opportunities.rows.find(item => searchable.includes(item.project_number.toLocaleLowerCase()))
+      const counterparties = message.direction === 'Inkomend' ? [message.fromAddress] : message.toRecipients.map(item=>item.address)
+      const organization = organizations.rows.find(item => {
+        const contacts = jsonValue<NonNullable<Organization['contacts']>>(item.contacts ?? [])
+        return [item.email,...contacts.map(contact=>contact.email)].some(email=>counterparties.includes(email.trim().toLocaleLowerCase()))
+      })
+      const existing = await this.pool.query<{id:string}>('SELECT id FROM mailbox_messages WHERE tenant_id=$1 AND (provider_message_id=$2 OR ($3::text IS NOT NULL AND correlation_key=$3)) LIMIT 1', [context.tenantId,message.providerMessageId,message.correlationKey??null])
+      const id = existing.rows[0]?.id ?? randomUUID()
+      await this.pool.query(`INSERT INTO mailbox_messages (tenant_id,id,provider_message_id,internet_message_id,conversation_id,correlation_key,direction,from_name,from_address,to_recipients,cc_recipients,subject,body_preview,received_at,sent_at,is_read,has_attachments,web_link,organization_id,opportunity_id,project_id,synchronized_at)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,now())
+        ON CONFLICT (tenant_id,id) DO UPDATE SET provider_message_id=EXCLUDED.provider_message_id,internet_message_id=EXCLUDED.internet_message_id,conversation_id=EXCLUDED.conversation_id,direction=EXCLUDED.direction,from_name=EXCLUDED.from_name,from_address=EXCLUDED.from_address,to_recipients=EXCLUDED.to_recipients,cc_recipients=EXCLUDED.cc_recipients,subject=EXCLUDED.subject,body_preview=EXCLUDED.body_preview,received_at=EXCLUDED.received_at,sent_at=EXCLUDED.sent_at,is_read=EXCLUDED.is_read,has_attachments=EXCLUDED.has_attachments,web_link=EXCLUDED.web_link,organization_id=COALESCE(mailbox_messages.organization_id,EXCLUDED.organization_id),opportunity_id=COALESCE(mailbox_messages.opportunity_id,EXCLUDED.opportunity_id),project_id=COALESCE(mailbox_messages.project_id,EXCLUDED.project_id),synchronized_at=now()`,
+        [context.tenantId,id,message.providerMessageId,message.internetMessageId??null,message.conversationId??null,message.correlationKey??null,message.direction,message.fromName,message.fromAddress,JSON.stringify(message.toRecipients),JSON.stringify(message.ccRecipients),message.subject,message.bodyPreview,message.receivedAt??null,message.sentAt??null,message.isRead,message.hasAttachments,message.webLink??null,organization?.id??null,opportunity?.id??null,project?.id??null])
+    }
+    await this.pool.query(`INSERT INTO mailbox_sync_state (tenant_id,mailbox,last_synchronized_at,last_error,updated_at) VALUES ($1,$2,now(),null,now()) ON CONFLICT (tenant_id) DO UPDATE SET mailbox=EXCLUDED.mailbox,last_synchronized_at=now(),last_error=null,updated_at=now()`, [context.tenantId,mailbox])
+    return this.mailboxOverview(context,true,mailbox)
+  }
+
+  async recordMailboxSyncError(context:RequestContext, mailbox:string, error:string) {
+    await this.pool.query(`INSERT INTO mailbox_sync_state (tenant_id,mailbox,last_error,updated_at) VALUES ($1,$2,$3,now()) ON CONFLICT (tenant_id) DO UPDATE SET mailbox=EXCLUDED.mailbox,last_error=EXCLUDED.last_error,updated_at=now()`,[context.tenantId,mailbox,error.slice(0,1000)])
+  }
+
+  async recordOutgoingMailboxMessage(context:RequestContext, mailbox:string, providerReference:string, correlationKey:string, input:{to:string[];cc?:string[];subject:string;body:string;organizationId?:string;opportunityId?:string;projectId?:string}) {
+    const id=randomUUID(); const now=new Date().toISOString()
+    await this.pool.query(`INSERT INTO mailbox_messages (tenant_id,id,provider_message_id,correlation_key,direction,from_name,from_address,to_recipients,cc_recipients,subject,body_preview,sent_at,is_read,has_attachments,organization_id,opportunity_id,project_id,synchronized_at) VALUES ($1,$2,$3,$4,'Uitgaand','BouwFlow',$5,$6,$7,$8,$9,$10,true,false,$11,$12,$13,now())`,
+      [context.tenantId,id,providerReference,correlationKey,mailbox,JSON.stringify(input.to.map(address=>({name:'',address}))),JSON.stringify((input.cc??[]).map(address=>({name:'',address}))),input.subject,input.body.slice(0,1000),now,input.organizationId??null,input.opportunityId??null,input.projectId??null])
+    return (await this.pool.query<MailboxMessageRow>('SELECT * FROM mailbox_messages WHERE tenant_id=$1 AND id=$2',[context.tenantId,id])).rows.map(mapMailboxMessage)[0]
+  }
+
+  async linkMailboxMessage(context:RequestContext,id:string,input:MailboxLinkInput) {
+    const result=await this.pool.query<MailboxMessageRow>('UPDATE mailbox_messages SET organization_id=$3,opportunity_id=$4,project_id=$5 WHERE tenant_id=$1 AND id=$2 RETURNING *',[context.tenantId,id,input.organizationId??null,input.opportunityId??null,input.projectId??null])
+    if(!result.rowCount)throw new RepositoryError('E-mailbericht niet gevonden',404)
+    return mapMailboxMessage(result.rows[0])
   }
 
   private async lockProgressStatement(client: SqlClient, tenantId: string, statementId: string) {

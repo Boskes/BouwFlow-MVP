@@ -42,6 +42,7 @@ import {
   LogOut,
   Menu,
   MapPin,
+  Mail,
   Maximize2,
   PanelLeftClose,
   PanelLeftOpen,
@@ -80,6 +81,7 @@ import BelgianAddressAutocomplete from "./BelgianAddressAutocomplete";
 const FormulaBuilderDialog = lazy(() => import('./FormulaBuilderDialog'))
 const BoqItemAdvancedDialog = lazy(() => import('./FormulaBuilderDialog').then(module => ({ default: module.BoqItemAdvancedDialog })))
 const BimIfcViewer = lazy(() => import('./BimIfcViewer'))
+const MailboxPage = lazy(() => import('./MailboxPage'))
 import type { IfcViewerCommand, IfcViewerElement } from "./BimIfcViewer";
 import {
   autoSchedulePlanningActivities,
@@ -265,6 +267,7 @@ const nav = [
     icon: GitCompareArrows,
   },
   { id: "documents" as Page, label: "Documenten", icon: FileText },
+  { id: "mailbox" as Page, label: "E-mail", icon: Mail },
   { id: "qhse" as Page, label: "QHSE", icon: ShieldCheck },
   { id: "subcontractors" as Page, label: "Onderaannemers", icon: Handshake },
   { id: "consortia" as Page, label: "THV & Combinaties", icon: Building2 },
@@ -292,7 +295,7 @@ const navigationGroups: NavigationGroup[] = [
   { id: "projects", label: "Projecten & uitvoering", icon: FolderKanban, pageIds: ["projects","planning","site","changes","documents","closeout"] },
   { id: "finance", label: "Financiën & inkoop", icon: Euro, pageIds: ["procurement","financial","control","cashflow","post-calculation","notification-settings"] },
   { id: "resources", label: "Resources & QHSE", icon: Boxes, pageIds: ["hr","resources","subcontractors","qhse"] },
-  { id: "collaboration", label: "Samenwerking", icon: Handshake, pageIds: ["consortia","client-portal","subcontractor-portal","supplier-portal"] },
+  { id: "collaboration", label: "Samenwerking", icon: Handshake, pageIds: ["mailbox","consortia","client-portal","subcontractor-portal","supplier-portal"] },
   { id: "intelligence", label: "Inzicht & automatisering", icon: Bot, pageIds: ["ai"] },
   { id: "administration", label: "Beheer", icon: Settings, pageIds: ["company","entity-finance","access","integrations"] },
 ];
@@ -2796,6 +2799,7 @@ function App() {
               onOpenDossier={openDossier}
             />
           )}
+          {page === "mailbox" && <MailboxPage state={presentationState} actions={actions} />}
           {page === "qhse" && <Qhse state={scopedState} actions={actions} onOpenDossier={openDossier} />}
           {page === "subcontractors" && <SubcontractorsWorkspace state={scopedState} actions={actions} onOpenDossier={openDossier} />}
           {page === "consortia" && <ConsortiaPage state={presentationState} actions={actions} onOpenDossier={openDossier} />}

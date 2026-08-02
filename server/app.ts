@@ -29,6 +29,7 @@ import { createAiGateway, createDocumentMailGateway, createIntegrationGateway, c
 import { serviceRequestSchema } from './schemas.js'
 import { HttpBelgianAddressSearch, type BelgianAddressSearch } from './belgian-address-search.js'
 import { getBimProductionTestModel } from '../src/bim-test-models.js'
+import { createMicrosoft365MailService, type CentralMailService } from './microsoft365-mail.js'
 
 type BimTestModelFetch = (input: string | URL | Request, init?: RequestInit) => Promise<Response>
 
@@ -56,6 +57,7 @@ export interface BuildAppOptions {
   aiGateway?: AiGateway
   quoteMailGateway?: QuoteMailGateway
   documentMailGateway?: DocumentMailGateway
+  centralMailService?: CentralMailService
   belgianAddressSearch?: BelgianAddressSearch
   bimTestModelFetch?: BimTestModelFetch
 }
@@ -86,6 +88,11 @@ const belgianAddressQuerySchema = z.object({
   q: z.string().trim().min(2).max(120),
   limit: z.coerce.number().int().min(1).max(20).default(10),
 }).strict()
+const mailboxComposeSchema = z.object({
+  to:z.array(z.email()).min(1).max(50), cc:z.array(z.email()).max(50).optional(), subject:z.string().trim().min(1).max(250), body:z.string().trim().min(1).max(100_000),
+  organizationId:z.uuid().optional(), opportunityId:z.uuid().optional(), projectId:z.uuid().optional(),
+}).strict()
+const mailboxLinkSchema = z.object({ organizationId:z.uuid().optional(), opportunityId:z.uuid().optional(), projectId:z.uuid().optional() }).strict()
 
 function validWebhookAuthorization(authorization: string | undefined, secret: string) {
   const supplied = authorization?.match(/^Bearer\s+(.+)$/i)?.[1] ?? ''
@@ -100,21 +107,24 @@ function multipartField(fields: Record<string, unknown>, name: string) {
   return value && typeof value === 'object' && 'value' in value ? String((value as { value: unknown }).value) : undefined
 }
 
-export async function buildApp({ pool, authMode = 'development', logger = false, frontendOrigin = 'http://localhost:5173', objectStorage = new LocalObjectStorage(), peppolValidator = createPeppolValidator(), peppolAccessPoint = createPeppolAccessPoint(), peppolWebhookSecret = process.env.PEPPOL_WEBHOOK_SECRET ?? '', peppolWebhookPublicUrl = process.env.PEPPOL_WEBHOOK_PUBLIC_URL ?? '', peppolStatusPollIntervalMs, peppolNotificationSender, peppolNotificationTargets: configuredNotificationTargets, peppolNotificationDispatchIntervalMs, peppolCriticalSlaMinutes = Number(process.env.PEPPOL_CRITICAL_SLA_MINUTES ?? 15), trustProxy = false, rateLimitMax = 5_000, rateLimitWindowMs = 60_000, release = 'development', requireIdempotencyKey = false, integrationGateway = createIntegrationGateway(requireIdempotencyKey), aiGateway = createAiGateway(requireIdempotencyKey), quoteMailGateway = createQuoteMailGateway(requireIdempotencyKey), documentMailGateway = createDocumentMailGateway(requireIdempotencyKey), belgianAddressSearch = new HttpBelgianAddressSearch(), bimTestModelFetch = fetch }: BuildAppOptions) {
+export async function buildApp({ pool, authMode = 'development', logger = false, frontendOrigin = 'http://localhost:5173', objectStorage = new LocalObjectStorage(), peppolValidator = createPeppolValidator(), peppolAccessPoint = createPeppolAccessPoint(), peppolWebhookSecret = process.env.PEPPOL_WEBHOOK_SECRET ?? '', peppolWebhookPublicUrl = process.env.PEPPOL_WEBHOOK_PUBLIC_URL ?? '', peppolStatusPollIntervalMs, peppolNotificationSender, peppolNotificationTargets: configuredNotificationTargets, peppolNotificationDispatchIntervalMs, peppolCriticalSlaMinutes = Number(process.env.PEPPOL_CRITICAL_SLA_MINUTES ?? 15), trustProxy = false, rateLimitMax = 5_000, rateLimitWindowMs = 60_000, release = 'development', requireIdempotencyKey = false, integrationGateway = createIntegrationGateway(requireIdempotencyKey), aiGateway = createAiGateway(requireIdempotencyKey), quoteMailGateway: configuredQuoteMailGateway, documentMailGateway: configuredDocumentMailGateway, centralMailService: configuredCentralMailService, belgianAddressSearch = new HttpBelgianAddressSearch(), bimTestModelFetch = fetch }: BuildAppOptions) {
   const app = Fastify({ logger, trustProxy, bodyLimit: 12 * 1024 * 1024, requestIdHeader: 'x-request-id', routerOptions: { maxParamLength: 1_024 } })
   const rateLimits = new Map<string, { count: number; resetAt: number }>()
   const metrics = new ApiMetrics()
   const requestStarted = new WeakMap<FastifyRequest, bigint>()
   const bimTestModelCache = new Map<string, Buffer>()
   const notificationTargets = configuredNotificationTargets ?? peppolNotificationTargets(process.env.PEPPOL_ALERT_EMAIL_TO, process.env.PEPPOL_ALERT_TEAMS_TARGETS)
+  const centralMailService = configuredCentralMailService ?? createMicrosoft365MailService(process.env)
+  const quoteMailGateway = configuredQuoteMailGateway ?? createQuoteMailGateway(requireIdempotencyKey,process.env,centralMailService)
+  const documentMailGateway = configuredDocumentMailGateway ?? createDocumentMailGateway(requireIdempotencyKey,process.env,centralMailService)
   const notificationUrl = process.env.PEPPOL_NOTIFICATION_URL ?? ''
   const notificationSender = peppolNotificationSender ?? (notificationUrl
     ? new HttpPeppolNotificationSender(notificationUrl, process.env.PEPPOL_NOTIFICATION_TOKEN)
     : createMicrosoft365PeppolNotificationSender({
-      tenantId: process.env.M365_NOTIFICATION_TENANT_ID,
-      clientId: process.env.M365_NOTIFICATION_CLIENT_ID,
-      clientSecret: process.env.M365_NOTIFICATION_CLIENT_SECRET,
-      senderMailbox: process.env.M365_NOTIFICATION_SENDER,
+      tenantId: process.env.M365_MAIL_TENANT_ID ?? process.env.M365_NOTIFICATION_TENANT_ID,
+      clientId: process.env.M365_MAIL_CLIENT_ID ?? process.env.M365_NOTIFICATION_CLIENT_ID,
+      clientSecret: process.env.M365_MAIL_CLIENT_SECRET ?? process.env.M365_NOTIFICATION_CLIENT_SECRET,
+      senderMailbox: process.env.M365_MAILBOX ?? process.env.M365_NOTIFICATION_SENDER,
       teamsWebhooks: teamsWebhooksFromJson(process.env.PEPPOL_TEAMS_WEBHOOKS_JSON),
     }))
   const criticalSlaMinutes = Number.isFinite(peppolCriticalSlaMinutes) ? Math.min(1440, Math.max(1, peppolCriticalSlaMinutes)) : 15
@@ -268,6 +278,21 @@ export async function buildApp({ pool, authMode = 'development', logger = false,
     if (revision.rowCount) reply.header('ETag', `"${revision.rows[0].data_revision}"`)
     return repository.bootstrap(request.context)
   })
+
+  const mailboxRoles = ['Administrator','Directie','Commercieel medewerker','Tender manager','Calculator','Projectdirecteur','Projectmanager','Werkvoorbereider','Aankoper','Financiële administratie'] as const
+  app.get('/api/mailbox', { preHandler:requireRoles(...mailboxRoles) }, async request => repository.mailboxOverview(request.context,Boolean(centralMailService),centralMailService?.mailbox??''))
+  app.post('/api/mailbox/synchronize', { preHandler:requireRoles(...mailboxRoles) }, async request => {
+    if(!centralMailService)throw new RepositoryError('De centrale Microsoft 365-mailbox is nog niet geconfigureerd',503)
+    try{return await repository.synchronizeMailbox(request.context,centralMailService.mailbox??'',await centralMailService.synchronize())}
+    catch(error){const message=error instanceof Error?error.message:'Mailboxsync mislukt';await repository.recordMailboxSyncError(request.context,centralMailService.mailbox??'',message);throw new RepositoryError(message,503)}
+  })
+  app.post('/api/mailbox/send', { preHandler:requireRoles(...mailboxRoles) }, async request => {
+    if(!centralMailService)throw new RepositoryError('De centrale Microsoft 365-mailbox is nog niet geconfigureerd',503)
+    const input=mailboxComposeSchema.parse(request.body);const correlationKey=`mailbox:${request.idempotencyKey??request.id}`
+    try{const sent=await centralMailService.send({...input,idempotencyKey:correlationKey});return repository.recordOutgoingMailboxMessage(request.context,centralMailService.mailbox??'',sent.providerReference??`m365:${correlationKey}`,correlationKey,input)}
+    catch(error){throw new RepositoryError(error instanceof Error?error.message:'E-mailverzending mislukt',503)}
+  })
+  app.patch('/api/mailbox/messages/:id/link', { preHandler:requireRoles(...mailboxRoles) }, async request => repository.linkMailboxMessage(request.context,uuidParams.parse(request.params).id,mailboxLinkSchema.parse(request.body)))
 
   app.get('/api/addresses/be/suggestions', { preHandler: requireRoles('Administrator', 'Directie', 'Commercieel medewerker', 'Tender manager', 'Financiële administratie') }, async request => {
     const input = belgianAddressQuerySchema.parse(request.query)
