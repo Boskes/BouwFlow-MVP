@@ -37,7 +37,7 @@ mkdir -p "$release"
 tar -xzf "$archive" -C "$release"
 printf 'BUILD_SHA=%s\n' "$release_id" > "$release/release.env"
 if [[ -r "$SHARED_ENV" ]]; then
-    grep -E '^M365_MAIL_(TENANT_ID|CLIENT_ID|CLIENT_SECRET|MAILBOX)=' \
+    grep -E '^M365_(MAIL_TENANT_ID|MAIL_CLIENT_ID|MAIL_CLIENT_SECRET|MAILBOX)=' \
         "$SHARED_ENV" >> "$release/release.env"
 fi
 chmod 0640 "$release/release.env"
