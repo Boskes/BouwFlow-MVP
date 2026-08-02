@@ -395,13 +395,13 @@ describe('BouwFlow API', () => {
     expect(invoiceReadyChangeOrderResponse.json()).toMatchObject({ status: 'Klaar voor facturatie', total: 16500 })
 
     const progressStatementPayload = {
-      periodStart: '2027-01-01', periodEnd: '2027-01-31', lines: [{ workPackageId: awardedProject.workPackages[0].id, cumulativeProgressPct: 25 }],
-      changeOrderIds: [changeOrderResponse.json().id], priceRevisionAmount: 1000, retentionPct: 5, notes: 'Eerste maandelijkse vordering.',
+      periodStart: '2027-01-01', periodEnd: '2027-01-31', valuationDate:'2027-01-31',dueDate:'2027-03-02',certificateReference:'CERT-2027-01',preparedBy:'Lena Vermeulen',revisionFormula:'I-2021',advancePaymentAmount:0,advanceRecoveryAmount:2500,otherDeductionsAmount:500,evidenceDocumentIds:[],qualityChecklist:{measurementsVerified:true,evidenceComplete:true,changesApproved:true,bimModelValidated:true},lines: [{ workPackageId: awardedProject.workPackages[0].id, cumulativeProgressPct: 25,measurementMethod:'BIM',measuredQuantity:2500,unit:'m³',evidenceDocumentIds:[],bimEvidence:{modelId:'tunnel-class8',modelName:'Tunnel.ifc',modelVersion:'AFC-34',discipline:'Infrastructuur',elementIds:['SEG-001','SEG-002'],elementCount:2,measuredQuantity:10000,verifiedQuantity:2500,unit:'m³',completionPct:25,measuredAt:'2027-01-31T08:00:00.000Z',measuredBy:'Lena Vermeulen',status:'Gecontroleerd',clashFree:true,notes:'Gecontroleerd tegen landmeting.'} }],
+      changeOrderIds: [changeOrderResponse.json().id], priceRevisionAmount: 1000, retentionPct: 5, notes: 'Eerste maandelijkse BIM-vordering.',
     }
     const progressStatementResponse = await app.inject({ method: 'POST', url: `/api/projects/${awardedProject.id}/progress-statements`, payload: progressStatementPayload })
     expect(progressStatementResponse.statusCode).toBe(201)
-    expect(progressStatementResponse.json()).toMatchObject({ projectId: awardedProject.id, status: 'Concept', changeOrderAmount: 16500, retentionPct: 5 })
-    expect(progressStatementResponse.json().lines[0]).toMatchObject({ workPackageId: awardedProject.workPackages[0].id, cumulativeProgressPct: 25, previousCumulative: 0 })
+    expect(progressStatementResponse.json()).toMatchObject({ projectId: awardedProject.id, status: 'Concept', changeOrderAmount: 16500, retentionPct: 5, certificateReference:'CERT-2027-01',advanceRecoveryAmount:2500 })
+    expect(progressStatementResponse.json().lines[0]).toMatchObject({ workPackageId: awardedProject.workPackages[0].id, cumulativeProgressPct: 25, previousCumulative: 0,measurementMethod:'BIM',bimEvidence:expect.objectContaining({status:'Gecontroleerd',elementCount:2}) })
     const updatedProgressStatementResponse = await app.inject({ method: 'PATCH', url: `/api/progress-statements/${progressStatementResponse.json().id}`, payload: { ...progressStatementPayload, lines: [{ workPackageId: awardedProject.workPackages[0].id, cumulativeProgressPct: 30 }], priceRevisionAmount: 1200 } })
     expect(updatedProgressStatementResponse.statusCode).toBe(200)
     expect(updatedProgressStatementResponse.json().workAmount).toBeGreaterThan(0)

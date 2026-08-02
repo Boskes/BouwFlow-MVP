@@ -609,6 +609,8 @@ CREATE TABLE IF NOT EXISTS progress_statements (
   FOREIGN KEY (tenant_id, project_id) REFERENCES projects(tenant_id, id)
 );
 
+ALTER TABLE progress_statements ADD COLUMN IF NOT EXISTS details jsonb NOT NULL DEFAULT '{}';
+
 ALTER TABLE change_orders ADD COLUMN IF NOT EXISTS progress_statement_id uuid;
 
 CREATE TABLE IF NOT EXISTS sales_invoices (

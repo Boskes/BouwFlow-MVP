@@ -280,15 +280,24 @@ async function seedCommercialAndFinancialFlow(client: PoolClient, tenantId: stri
 
   const statement1 = id('progress-statement', 'oosterweel-2026-09')
   const statement2 = id('progress-statement', 'oosterweel-2026-10')
-  const progressLines = [{ workPackageId: id('work-package', '1'), workPackageCode: 'WP-01', workPackageName: 'Voorbereidende werken', contractValue: 52000000, previousCumulative: 0, currentPeriod: 6240000, cumulativeProgressPct: 12, cumulativeValue: 6240000 }]
+  const tunnelBimEvidence = { modelId:'tunnel-class8',modelName:'RingTunnel-Zuid-IFC43.ifc',modelVersion:'AFC-TUN-34 · 2026-10-31',discipline:'Infrastructuur',elementIds:Array.from({length:36},(_,index)=>`tseg-${String(index+1).padStart(3,'0')}`),elementCount:36,measuredQuantity:11842.5,verifiedQuantity:2605.35,unit:'m³',completionPct:22,measuredAt:'2026-10-31T07:45:00.000Z',measuredBy:'Lena Vermeulen',status:'Gecontroleerd',clashFree:true,notes:'Tunnelmoten gekoppeld aan landmeetkundige as-built controle en AFC-model.' }
+  const progressLines = [
+    { workPackageId:id('work-package','1'),workPackageCode:'WP-01',workPackageName:'Voorbereidende werken',contractValue:52000000,previousCumulative:0,currentPeriod:6240000,cumulativeProgressPct:12,cumulativeValue:6240000,measurementMethod:'Dagrapporten',comment:'Dagrapporten, foto’s en hoeveelhedenregister gecontroleerd.' },
+    { workPackageId:id('work-package','2'),workPackageCode:'WP-02',workPackageName:'Nutsverleggingen en interfaces',contractValue:68000000,previousCumulative:0,currentPeriod:4760000,cumulativeProgressPct:7,cumulativeValue:4760000,measurementMethod:'Meetstaat',measuredQuantity:1840,unit:'m' },
+    { workPackageId:id('work-package','3'),workPackageCode:'WP-03',workPackageName:'Bouwkuipen en grondwerken',contractValue:112000000,previousCumulative:0,currentPeriod:24640000,cumulativeProgressPct:22,cumulativeValue:24640000,measurementMethod:'BIM',measuredQuantity:2605.35,unit:'m³',bimEvidence:tunnelBimEvidence,comment:'36 IFC4.3-elementen als gecontroleerd meetbewijs.' },
+    { workPackageId:id('work-package','4'),workPackageCode:'WP-04',workPackageName:'Tunnelbak en kunstwerken',contractValue:238000000,previousCumulative:0,currentPeriod:7140000,cumulativeProgressPct:3,cumulativeValue:7140000,measurementMethod:'BIM',measuredQuantity:3150,unit:'m³',bimEvidence:{...tunnelBimEvidence,elementIds:tunnelBimEvidence.elementIds.slice(0,10),elementCount:10,measuredQuantity:105000,verifiedQuantity:3150,completionPct:3,notes:'Eerste tien tunnelmoten vrijgegeven na beton- en maatcontrole.'} },
+  ]
+  const progressDetails = { valuationDate:'2026-10-31',dueDate:'2026-12-07',certificateReference:'CERT-OWV-2026-10-02',preparedBy:'Lena Vermeulen',revisionFormula:'Contractuele formule I-2021 · index oktober 2026',advancePaymentAmount:0,advanceRecoveryAmount:350000,otherDeductionsAmount:25000,evidenceDocumentIds:[documentIds.report,documentIds.plan],qualityChecklist:{measurementsVerified:true,evidenceComplete:true,changesApproved:true,bimModelValidated:true} }
   await client.query(
     `INSERT INTO progress_statements
-      (tenant_id,id,number,project_id,period_start,period_end,lines,change_order_ids,work_amount,change_order_amount,price_revision_amount,gross_amount,retention_pct,retention_amount,net_amount,status,notes,submitted_at,approved_by,approved_at)
+      (tenant_id,id,number,project_id,period_start,period_end,lines,change_order_ids,work_amount,change_order_amount,price_revision_amount,gross_amount,retention_pct,retention_amount,net_amount,status,notes,submitted_at,approved_by,approved_at,details)
      VALUES
-      ($1,$2,'VS-OWV-2026-09',$4,'2026-09-01','2026-09-30',$5,$6,6240000,425000,185000,6850000,5,342500,6507500,'Ingediend','Eerste vorderingsstaat voor klantgoedkeuring.','2026-10-03T09:00:00.000Z',NULL,NULL),
-      ($1,$3,'VS-OWV-2026-10',$4,'2026-10-01','2026-10-31',$5,'[]',8120000,190000,225000,8535000,5,426750,8108250,'Goedgekeurd','Goedgekeurde demo-vorderingsstaat.','2026-11-03T09:00:00.000Z','Marie De Clerck','2026-11-06T14:00:00.000Z')
-     ON CONFLICT (tenant_id,id) DO NOTHING`,
-    [tenantId, statement1, statement2, DEMO_PROJECT_ID, JSON.stringify(progressLines), JSON.stringify([id('change', 'oosterweel-cables')])],
+      ($1,$2,'VS-OWV-2026-09',$4,'2026-09-01','2026-09-30',$5,$6,6240000,425000,185000,6850000,5,342500,6507500,'Ingediend','Eerste professionele vorderingsstaat voor klantgoedkeuring.','2026-10-03T09:00:00.000Z',NULL,NULL,$7),
+      ($1,$3,'VS-OWV-2026-10',$4,'2026-10-01','2026-10-31',$5,'[]',8120000,190000,225000,8535000,5,426750,8108250,'Goedgekeurd','Goedgekeurde vorderingsstaat met BIM-meetbewijs.','2026-11-03T09:00:00.000Z','Marie De Clerck','2026-11-06T14:00:00.000Z',$7)
+     ON CONFLICT (tenant_id,id) DO UPDATE SET
+       lines=EXCLUDED.lines,details=EXCLUDED.details,notes=EXCLUDED.notes,
+       price_revision_amount=EXCLUDED.price_revision_amount,retention_pct=EXCLUDED.retention_pct`,
+    [tenantId, statement1, statement2, DEMO_PROJECT_ID, JSON.stringify(progressLines), JSON.stringify([id('change', 'oosterweel-cables')]), JSON.stringify(progressDetails)],
   )
   const invoiceId = id('sales-invoice', 'oosterweel-2026-10')
   await client.query(
@@ -411,7 +420,16 @@ export async function seedFullProductionDemo(client: PoolClient, tenantId: strin
   const project = await client.query('SELECT id FROM projects WHERE tenant_id=$1 AND id=$2', [tenantId, DEMO_PROJECT_ID])
   if (!project.rowCount) return false
   const marker = await client.query('SELECT id FROM users WHERE tenant_id=$1 AND id=$2', [tenantId, userIds.tenderOwner])
-  if (marker.rowCount) return false
+  if (marker.rowCount) {
+    const progressUpgrade = await client.query<{ professional: boolean }>(
+      `SELECT COALESCE(details->>'certificateReference','')='CERT-OWV-2026-10-02' AS professional
+         FROM progress_statements WHERE tenant_id=$1 AND id=$2`,
+      [tenantId, id('progress-statement', 'oosterweel-2026-10')],
+    )
+    if (progressUpgrade.rows[0]?.professional) return false
+    await seedCommercialAndFinancialFlow(client, tenantId)
+    return true
+  }
 
   await seedUsers(client, tenantId)
   await client.query(

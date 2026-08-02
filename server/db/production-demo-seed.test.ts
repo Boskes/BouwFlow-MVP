@@ -32,7 +32,7 @@ describe('production demo seed', () => {
   it('vult de lege BouwFlow-tenant met de klasse 8-calculatie en een project', async () => {
     await expect(ensureProductionDemoData(pool, adminContext)).resolves.toBe(true)
 
-    const [calculations, calculationVersions, chapters, items, projects, reports, costs, changes, forecasts, pipeline, users, documents, quotes, statements, invoices, orders, certificates, blueprint, tender, resourceProject] = await Promise.all([
+    const [calculations, calculationVersions, chapters, items, projects, reports, costs, changes, forecasts, pipeline, users, documents, quotes, statements, invoices, orders, certificates, blueprint, tender, resourceProject, professionalStatement] = await Promise.all([
       pool.query<{ count: string }>('SELECT count(*)::text AS count FROM calculations WHERE tenant_id=$1', [BOUWFLOW_DEMO_TENANT_ID]),
       pool.query<{ version: number; label: string; snapshot: { items: unknown[] } }>('SELECT version,label,snapshot FROM calculation_versions WHERE tenant_id=$1 ORDER BY version', [BOUWFLOW_DEMO_TENANT_ID]),
       pool.query<{ count: string }>('SELECT count(*)::text AS count FROM boq_chapters WHERE tenant_id=$1', [BOUWFLOW_DEMO_TENANT_ID]),
@@ -53,6 +53,7 @@ describe('production demo seed', () => {
       pool.query<{ employees: unknown; subcontractors: unknown; work_tickets: unknown; project_contracts: unknown }>('SELECT employees,subcontractors,work_tickets,project_contracts FROM blueprint_state WHERE tenant_id=$1', [BOUWFLOW_DEMO_TENANT_ID]),
       pool.query<{ tender: unknown }>('SELECT tender FROM opportunities WHERE tenant_id=$1 AND id=$2', [BOUWFLOW_DEMO_TENANT_ID, '20000000-0000-4000-8000-000000000002']),
       pool.query<{ number: string; planning: { activities: Array<{ resourceAssignments: Array<{ resourceName: string; allocationPct: number }> }> } }>("SELECT number,planning FROM projects WHERE tenant_id=$1 AND number='PRJ-RING-NOORD-DEMO'", [BOUWFLOW_DEMO_TENANT_ID]),
+      pool.query<{lines:Array<{measurementMethod?:string;bimEvidence?:{status:string}}>;details:{certificateReference:string;qualityChecklist:{bimModelValidated:boolean}}}>("SELECT lines,details FROM progress_statements WHERE tenant_id=$1 AND number='VS-OWV-2026-10'",[BOUWFLOW_DEMO_TENANT_ID]),
     ])
 
     expect(calculations.rows[0].count).toBe('2')
@@ -95,6 +96,7 @@ describe('production demo seed', () => {
         expect.objectContaining({ resourceAssignments: [expect.objectContaining({ resourceName: 'Rupskraan 35t', allocationPct: 100 })] }),
       ]) },
     })
+    expect(professionalStatement.rows[0]).toMatchObject({details:{certificateReference:'CERT-OWV-2026-10-02',qualityChecklist:{bimModelValidated:true}},lines:expect.arrayContaining([expect.objectContaining({measurementMethod:'BIM',bimEvidence:expect.objectContaining({status:'Gecontroleerd'})})])})
   }, 15_000)
 
   it('blijft idempotent na een procesherstart en dupliceert de kerncalculatie niet', async () => {

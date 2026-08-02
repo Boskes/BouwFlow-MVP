@@ -1655,9 +1655,35 @@ export interface ChangeOrder {
 
 export type ChangeOrderInput = Pick<ChangeOrder, 'dailyReportId' | 'workPackageId' | 'date' | 'cause' | 'description' | 'initiator' | 'responsibleParty' | 'scheduleImpactDays' | 'costs' | 'photoIds'>
 
+export type ProgressMeasurementMethod = 'Handmatig' | 'Meetstaat' | 'Dagrapporten' | 'BIM'
+
+export interface BimProgressEvidence {
+  modelId: string
+  modelName: string
+  modelVersion: string
+  discipline: 'Architectuur' | 'Structuur' | 'Technieken' | 'Infrastructuur' | 'Multidisciplinair'
+  elementIds: string[]
+  elementCount: number
+  measuredQuantity: number
+  verifiedQuantity: number
+  unit: 'm²' | 'm³' | 'm' | 'st'
+  completionPct: number
+  measuredAt: string
+  measuredBy: string
+  status: 'Concept' | 'Gecontroleerd'
+  clashFree: boolean
+  notes: string
+}
+
 export interface ProgressStatementLineInput {
   workPackageId: string
   cumulativeProgressPct: number
+  measurementMethod?: ProgressMeasurementMethod
+  measuredQuantity?: number
+  unit?: string
+  comment?: string
+  evidenceDocumentIds?: string[]
+  bimEvidence?: BimProgressEvidence
 }
 
 export interface ProgressStatementLine extends ProgressStatementLineInput {
@@ -1677,6 +1703,21 @@ export interface ProgressStatementInput {
   priceRevisionAmount: number
   retentionPct: number
   notes: string
+  valuationDate?: string
+  dueDate?: string
+  certificateReference?: string
+  preparedBy?: string
+  revisionFormula?: string
+  advancePaymentAmount?: number
+  advanceRecoveryAmount?: number
+  otherDeductionsAmount?: number
+  evidenceDocumentIds?: string[]
+  qualityChecklist?: {
+    measurementsVerified: boolean
+    evidenceComplete: boolean
+    changesApproved: boolean
+    bimModelValidated: boolean
+  }
 }
 
 export interface ProgressStatement {
@@ -1701,6 +1742,16 @@ export interface ProgressStatement {
   approvedBy?: string
   approvedAt?: string
   invoiceId?: string
+  valuationDate?: string
+  dueDate?: string
+  certificateReference?: string
+  preparedBy?: string
+  revisionFormula?: string
+  advancePaymentAmount?: number
+  advanceRecoveryAmount?: number
+  otherDeductionsAmount?: number
+  evidenceDocumentIds?: string[]
+  qualityChecklist?: ProgressStatementInput['qualityChecklist']
 }
 
 export interface SalesInvoiceInput {
