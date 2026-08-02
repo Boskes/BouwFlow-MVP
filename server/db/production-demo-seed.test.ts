@@ -32,7 +32,7 @@ describe('production demo seed', () => {
   it('vult de lege BouwFlow-tenant met de klasse 8-calculatie en een project', async () => {
     await expect(ensureProductionDemoData(pool, adminContext)).resolves.toBe(true)
 
-    const [calculations, calculationVersions, chapters, items, projects, reports, costs, changes, forecasts, pipeline, users, documents, quotes, statements, invoices, orders, certificates, blueprint, tender, resourceProject, professionalStatement] = await Promise.all([
+    const [calculations, calculationVersions, chapters, items, projects, reports, costs, changes, forecasts, pipeline, users, documents, quotes, statements, invoices, orders, certificates, blueprint, tender, resourceProject, professionalStatement, familyHomeProject, familyHomeCalculation] = await Promise.all([
       pool.query<{ count: string }>('SELECT count(*)::text AS count FROM calculations WHERE tenant_id=$1', [BOUWFLOW_DEMO_TENANT_ID]),
       pool.query<{ version: number; label: string; snapshot: { items: unknown[] } }>('SELECT version,label,snapshot FROM calculation_versions WHERE tenant_id=$1 ORDER BY version', [BOUWFLOW_DEMO_TENANT_ID]),
       pool.query<{ count: string }>('SELECT count(*)::text AS count FROM boq_chapters WHERE tenant_id=$1', [BOUWFLOW_DEMO_TENANT_ID]),
@@ -54,27 +54,29 @@ describe('production demo seed', () => {
       pool.query<{ tender: unknown }>('SELECT tender FROM opportunities WHERE tenant_id=$1 AND id=$2', [BOUWFLOW_DEMO_TENANT_ID, '20000000-0000-4000-8000-000000000002']),
       pool.query<{ number: string; planning: { activities: Array<{ resourceAssignments: Array<{ resourceName: string; allocationPct: number }> }> } }>("SELECT number,planning FROM projects WHERE tenant_id=$1 AND number='PRJ-RING-NOORD-DEMO'", [BOUWFLOW_DEMO_TENANT_ID]),
       pool.query<{lines:Array<{measurementMethod?:string;bimEvidence?:{status:string}}>;details:{certificateReference:string;qualityChecklist:{bimModelValidated:boolean}}}>("SELECT lines,details FROM progress_statements WHERE tenant_id=$1 AND number='VS-OWV-2026-10'",[BOUWFLOW_DEMO_TENANT_ID]),
+      pool.query<{name:string;planning:{activities:Array<{progress:number}>};work_packages:Array<{code:string}>}>("SELECT name,planning,work_packages FROM projects WHERE tenant_id=$1 AND number='PRJ-WONING-BIM-001'",[BOUWFLOW_DEMO_TENANT_ID]),
+      pool.query<{number:string;items:string}>("SELECT c.number,count(i.id)::text AS items FROM calculations c JOIN boq_items i ON i.tenant_id=c.tenant_id AND i.calculation_id=c.id WHERE c.tenant_id=$1 AND c.number='CAL-WONING-BIM-001' GROUP BY c.number",[BOUWFLOW_DEMO_TENANT_ID]),
     ])
 
-    expect(calculations.rows[0].count).toBe('2')
+    expect(calculations.rows[0].count).toBe('3')
     expect(calculationVersions.rows).toEqual([
       expect.objectContaining({version:1,label:'Tenderbasis',snapshot:expect.objectContaining({items:expect.any(Array)})}),
       expect.objectContaining({version:2,label:'Inschrijvingsversie',snapshot:expect.objectContaining({items:expect.any(Array)})}),
     ])
     expect(calculationVersions.rows[0].snapshot.items.length).toBe(1999)
     expect(calculationVersions.rows[1].snapshot.items.length).toBe(1999)
-    expect(chapters.rows[0].count).toBe('180')
-    expect(items.rows[0].count).toBe('2000')
-    expect(projects.rows[0].count).toBe('2')
+    expect(chapters.rows[0].count).toBe('188')
+    expect(items.rows[0].count).toBe('2023')
+    expect(projects.rows[0].count).toBe('3')
     expect(reports.rows[0].count).toBe('3')
     expect(costs.rows[0].count).toBe('7')
     expect(changes.rows[0].count).toBe('2')
     expect(forecasts.rows[0].count).toBe('2')
-    expect(pipeline.rows[0].count).toBe('5')
+    expect(pipeline.rows[0].count).toBe('6')
     expect(users.rows[0].count).toBe('10')
     expect(documents.rows[0].count).toBe('5')
     expect(quotes.rows[0].count).toBe('1')
-    expect(statements.rows[0].count).toBe('2')
+    expect(statements.rows[0].count).toBe('3')
     expect(invoices.rows[0].count).toBe('1')
     expect(orders.rows[0].count).toBe('1')
     expect(certificates.rows[0].count).toBe('2')
@@ -97,6 +99,8 @@ describe('production demo seed', () => {
       ]) },
     })
     expect(professionalStatement.rows[0]).toMatchObject({details:{certificateReference:'CERT-OWV-2026-10-02',qualityChecklist:{bimModelValidated:true}},lines:expect.arrayContaining([expect.objectContaining({measurementMethod:'BIM',bimEvidence:expect.objectContaining({status:'Gecontroleerd'})})])})
+    expect(familyHomeProject.rows[0]).toMatchObject({name:expect.stringContaining('BIM 3D/4D/5D'),planning:{activities:expect.arrayContaining([expect.objectContaining({progress:72})])},work_packages:expect.arrayContaining([expect.objectContaining({code:'08'})])})
+    expect(familyHomeCalculation.rows[0]).toEqual({number:'CAL-WONING-BIM-001',items:'23'})
   }, 15_000)
 
   it('blijft idempotent na een procesherstart en dupliceert de kerncalculatie niet', async () => {

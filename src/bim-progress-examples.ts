@@ -1,7 +1,9 @@
 import type { BimProgressEvidence } from './domain'
+import { FAMILY_HOME_MODEL_ID, FAMILY_HOME_MODEL_NAME, FAMILY_HOME_MODEL_VERSION, familyHomeBimElements, familyHomeBimPhases } from './family-home-bim'
 
 export type BimProgressElement = {
-  id:string; code:string; label:string; category:string; storey:string; quantity:number; unit:BimProgressEvidence['unit']; plannedProgressPct:number; completedProgressPct:number; verified:boolean
+  id:string; code:string; label:string; category:string; storey:string; quantity:number; unit:BimProgressEvidence['unit']; plannedProgressPct:number; completedProgressPct:number; verified:boolean;
+  phase:string; plannedStart:string; plannedEnd:string; costValue:number; x?:number; y?:number; width?:number; height?:number; shape?:string
 }
 
 export type BimProgressExample = {
@@ -13,9 +15,16 @@ const series = (prefix:string, count:number, category:string, storeys:string[], 
     id:`${prefix}-${String(index+1).padStart(3,'0')}`, code:`${prefix.toUpperCase()}-${String(index+1).padStart(3,'0')}`,
     label:`${category} ${String(index+1).padStart(2,'0')}`, category, storey:storeys[index%storeys.length], quantity:Number((quantity*(.82+(index%5)*.09)).toFixed(2)), unit,
     plannedProgressPct:Math.min(100,completion+8+(index%4)*3), completedProgressPct:Math.max(0,completion-(index%6)*4), verified:index%7!==0,
+    phase:`Fase ${1 + (index % 5)}`, plannedStart:`2026-${String(3 + (index % 5) * 2).padStart(2,'0')}-01`, plannedEnd:`2026-${String(4 + (index % 5) * 2).padStart(2,'0')}-28`, costValue:Number((quantity*(120 + (index%6)*24)).toFixed(2)),
   }))
 
 export const bimProgressExamples:BimProgressExample[] = [
+  {
+    id:FAMILY_HOME_MODEL_ID, label:'Gezinswoning · volledig BIM', projectType:'Private woningbouw · € 535.000',
+    description:'Volledig LOD350-woningmodel voor een vrijstaande gezinswoning. Alle objecten zijn gekoppeld aan uitvoeringsfasen, werkpakketten, calculatiebedragen en gecertificeerde voortgang.',
+    modelName:FAMILY_HOME_MODEL_NAME, modelVersion:FAMILY_HOME_MODEL_VERSION, discipline:'Multidisciplinair', coordinationStatus:'Uitvoeringsmodel · 3D/4D/5D gecontroleerd · CDE-uitgave 07',
+    elements:familyHomeBimElements.map(element=>({ id:element.id, code:element.code, label:element.label, category:element.category, storey:element.storey, quantity:element.quantity, unit:element.unit, plannedProgressPct:familyHomeBimPhases.find(phase=>phase.id===element.phaseId)?.progressPct??0, completedProgressPct:element.completedProgressPct, verified:element.verified, phase:familyHomeBimPhases.find(phase=>phase.id===element.phaseId)?.label??element.phaseId, plannedStart:element.plannedStart, plannedEnd:element.plannedEnd, costValue:Number((element.quantity*element.unitCost).toFixed(2)), x:element.x, y:element.y, width:element.width, height:element.height, shape:element.shape })),
+  },
   {
     id:'hospital-class8', label:'Klasse 8 · ziekenhuisvleugel', projectType:'Zorgbouw · € 128 miljoen',
     description:'Multidisciplinair federatiemodel met ruwbouw, gevel en technieken per bouwlaag. Geschikt voor maandelijkse waardering met controle door directievoering.',

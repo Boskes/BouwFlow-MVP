@@ -1,5 +1,6 @@
 import { Fragment, Suspense, lazy, type CSSProperties, type DragEvent, type FormEvent, type PointerEvent as ReactPointerEvent, type WheelEvent as ReactWheelEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { bimProductionTestModels, type BimProductionTestModel } from "./bim-test-models";
+import { FAMILY_HOME_CALCULATION_NUMBER, FAMILY_HOME_MODEL_NAME, FAMILY_HOME_MODEL_VERSION, familyHomeBimElements, familyHomeBimPhases, type FamilyHomeBimElement } from "./family-home-bim";
 import {
   Activity,
   AlertTriangle,
@@ -4217,7 +4218,7 @@ type BimModelElement = {
   category: BimElementCategory;
   storey: string;
   quantity: number;
-  unit: "m²" | "m³" | "st";
+  unit: "m²" | "m³" | "m" | "st";
   unitCost: number;
   x: number;
   y: number;
@@ -4227,7 +4228,20 @@ type BimModelElement = {
   warning?: string;
   globalId?: string;
   quantitySource?: string;
+  phaseId?: string;
+  workPackageCode?: string;
+  plannedStart?: string;
+  plannedEnd?: string;
+  completedProgressPct?: number;
+  verified?: boolean;
 };
+
+const familyHomeCalculationElements = familyHomeBimElements.map((element:FamilyHomeBimElement):BimModelElement=>({
+  id:element.id, ifcType:element.ifcType, label:element.label, category:element.category, storey:element.storey,
+  quantity:element.quantity, unit:element.unit, unitCost:element.unitCost, x:element.x, y:element.y, width:element.width, height:element.height,
+  shape:element.shape, phaseId:element.phaseId, workPackageCode:element.workPackageCode, plannedStart:element.plannedStart, plannedEnd:element.plannedEnd,
+  completedProgressPct:element.completedProgressPct, verified:element.verified,
+}));
 
 const bimDemoElements: BimModelElement[] = [
   { id:"vloer-gv",ifcType:"IfcSlab",label:"Vloerplaat GV",category:"Vloeren",storey:"Gelijkvloers",quantity:438,unit:"m²",unitCost:94,x:13,y:75,width:69,height:11,shape:"plate" },
@@ -4254,8 +4268,11 @@ const bimCategories = ["Wanden","Vloeren","Kolommen","Balken","Ramen","Deuren","
 const bimCategoryCode: Record<BimElementCategory,string> = { Wanden:"21.10", Vloeren:"22.10", Kolommen:"23.10", Balken:"23.20", Ramen:"31.10", Deuren:"32.10", Daken:"27.10", Trappen:"24.10", Installaties:"60.10", Overig:"90.10" };
 const bimUnitCosts: Record<BimElementCategory,number> = { Wanden:178,Vloeren:94,Kolommen:890,Balken:1120,Ramen:1280,Deuren:2460,Daken:132,Trappen:4850,Installaties:650,Overig:125 };
 function BimCalculationWorkspace({ calculation, actions, onClose, onAdded }: { calculation: Calculation; actions: ReturnType<typeof useBouwFlowStore>["actions"]; onClose: () => void; onAdded: (count:number) => void }) {
+  const isFamilyHome = calculation.number === FAMILY_HOME_CALCULATION_NUMBER;
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [selectedIds,setSelectedIds] = useState<Set<string>>(new Set(["wand-v1-a","raam-v1-01","raam-v1-02"]));
+  const [selectedIds,setSelectedIds] = useState<Set<string>>(new Set(isFamilyHome?familyHomeCalculationElements.slice(0,12).map(item=>item.id):["wand-v1-a","raam-v1-01","raam-v1-02"]));
+  const [dimension,setDimension] = useState<'3D'|'4D'|'5D'>(isFamilyHome?'4D':'3D');
+  const [timelineIndex,setTimelineIndex] = useState(Math.max(0,familyHomeBimPhases.findIndex(phase=>phase.progressPct<100)));
   const [categoryFilter,setCategoryFilter] = useState<BimElementCategory|"Alle">("Alle");
   const [storeyFilter,setStoreyFilter] = useState<BimModelElement["storey"]|"Alle">("Alle");
   const [ifcFile,setIfcFile] = useState<File>();
@@ -4263,9 +4280,9 @@ function BimCalculationWorkspace({ calculation, actions, onClose, onAdded }: { c
   const [ifcProgress,setIfcProgress] = useState(0);
   const [viewerCommand,setViewerCommand] = useState<IfcViewerCommand>();
   const [query,setQuery] = useState("");
-  const [modelName,setModelName] = useState("Kantoor Noord.ifc");
-  const [modelFormat,setModelFormat] = useState("IFC4 · demo-model");
-  const [importCount,setImportCount] = useState(1842);
+  const [modelName,setModelName] = useState(isFamilyHome?FAMILY_HOME_MODEL_NAME:"Kantoor Noord.ifc");
+  const [modelFormat,setModelFormat] = useState(isFamilyHome?`IFC4 · LOD350 · ${FAMILY_HOME_MODEL_VERSION}`:"IFC4 · demo-model");
+  const [importCount,setImportCount] = useState(isFamilyHome?familyHomeCalculationElements.length:1842);
   const [isImporting,setIsImporting] = useState(false);
   const [isAdding,setIsAdding] = useState(false);
   const [downloadingTestModelId,setDownloadingTestModelId] = useState<string>();
@@ -4274,7 +4291,7 @@ function BimCalculationWorkspace({ calculation, actions, onClose, onAdded }: { c
   const activeElements = useMemo<BimModelElement[]>(() => ifcElements.length ? ifcElements.map(element => {
     const category = bimCategories.includes(element.category as BimElementCategory) ? element.category as BimElementCategory : "Overig";
     return { id:String(element.expressId),ifcType:element.typeName,label:element.name,category,storey:element.storey,quantity:element.quantity,unit:element.unit,unitCost:bimUnitCosts[category],x:0,y:0,width:0,height:0,shape:"wall",warning:element.warning,globalId:element.globalId,quantitySource:element.quantitySource };
-  }) : bimDemoElements,[ifcElements]);
+  }) : isFamilyHome?familyHomeCalculationElements:bimDemoElements,[ifcElements,isFamilyHome]);
   const availableStoreys = useMemo(()=>[...new Set(activeElements.map(element=>element.storey))].sort(),[activeElements]);
   const visibleElements = activeElements.filter(element => (categoryFilter === "Alle" || element.category === categoryFilter) && (storeyFilter === "Alle" || element.storey === storeyFilter) && `${element.label} ${element.ifcType}`.toLocaleLowerCase().includes(query.toLocaleLowerCase()));
   const selectedElements = activeElements.filter(element => selectedIds.has(element.id));
@@ -4283,6 +4300,16 @@ function BimCalculationWorkspace({ calculation, actions, onClose, onAdded }: { c
     return elements.length ? { category, elements, quantity: elements.reduce((sum,element)=>sum+element.quantity,0), unit: elements[0].unit, unitCost: elements[0].unitCost } : undefined;
   }).filter(Boolean) as { category:BimElementCategory; elements:BimModelElement[]; quantity:number; unit:BimModelElement["unit"]; unitCost:number }[];
   const selectionTotal = groupedSelection.reduce((sum,group)=>sum+group.quantity*group.unitCost,0);
+  const modelTotal = activeElements.reduce((sum,element)=>sum+element.quantity*element.unitCost,0);
+  const activePhase = familyHomeBimPhases[timelineIndex] ?? familyHomeBimPhases[0];
+  const phaseElements = isFamilyHome ? activeElements.filter(element=>element.phaseId===activePhase.id) : [];
+  const phaseCost = phaseElements.reduce((sum,element)=>sum+element.quantity*element.unitCost,0);
+  const visibleByTimeline = (element:BimModelElement) => !isFamilyHome || !element.phaseId || familyHomeBimPhases.findIndex(phase=>phase.id===element.phaseId)<=timelineIndex;
+  const timelineState = (element:BimModelElement) => {
+    if(!isFamilyHome||!element.phaseId)return '';
+    const index=familyHomeBimPhases.findIndex(phase=>phase.id===element.phaseId);
+    return index<timelineIndex?'timeline-complete':index===timelineIndex?'timeline-active':'timeline-future';
+  };
   const selectGroup = (elements:BimModelElement[]) => {
     setSelectedIds(new Set(elements.map(element=>element.id)));
     setNotice(`${elements.length} objecten geselecteerd en doorgerekend.`);
@@ -4364,10 +4391,10 @@ function BimCalculationWorkspace({ calculation, actions, onClose, onAdded }: { c
     onAdded(created);
   };
   return <div className="bim-workspace-backdrop">
-    <section className="bim-workspace" aria-label="BIM-calculatiewerkruimte">
+    <section className={`bim-workspace ${dimension==='4D'&&isFamilyHome?'has-timeline':''}`} aria-label="BIM-calculatiewerkruimte">
       <header className="bim-workspace-header">
         <div className="bim-brand-mark"><Building2 size={23}/></div>
-        <div><p className="eyebrow">5D BIM-calculatie</p><h2>{modelName}</h2><span>{modelFormat} · {number(importCount)} objecten · gekoppeld aan {calculation.number}</span></div>
+        <div><p className="eyebrow">3D / 4D / 5D BIM-calculatie</p><h2>{modelName}</h2><span>{modelFormat} · {number(importCount)} objecten · gekoppeld aan {calculation.number}</span></div>
         <div className="bim-header-actions">
           <input ref={fileInputRef} type="file" hidden accept=".ifc" onChange={event=>void importModel(event.target.files?.[0])}/>
           <details className="bim-testdata-menu">
@@ -4384,11 +4411,19 @@ function BimCalculationWorkspace({ calculation, actions, onClose, onAdded }: { c
         </div>
       </header>
       <div className="bim-commandbar">
+        <div className="bim-dimension-tabs" aria-label="BIM-dimensie kiezen">{(['3D','4D','5D'] as const).map(item=><button type="button" key={item} className={dimension===item?'active':''} onClick={()=>setDimension(item)}><strong>{item}</strong><span>{item==='3D'?'Model':item==='4D'?'Planning':'Kosten'}</span></button>)}</div>
         <div className="bim-selection-tools"><button className="active"><Search size={14}/>Object</button><button onClick={()=>selectGroup(visibleElements)}><Maximize2 size={14}/>Zichtbare selectie</button><button onClick={()=>setSelectedIds(new Set())}><X size={14}/>Selectie wissen</button></div>
         <label><SlidersHorizontal size={14}/><select value={storeyFilter} onChange={event=>setStoreyFilter(event.target.value)}><option>Alle</option>{availableStoreys.map(storey=><option key={storey}>{storey}</option>)}</select></label>
         <label className="bim-search"><Search size={14}/><input value={query} onChange={event=>setQuery(event.target.value)} placeholder="Zoek object of IFC-type"/></label>
         <span className="bim-live-state"><i></i>{notice}</span>
       </div>
+      {dimension==='4D'&&isFamilyHome&&<div className="bim-4d-timeline">
+        <div><span>4D-simulatie</span><strong>{activePhase.sequence}. {activePhase.label}</strong><small>{date(activePhase.startDate)} – {date(activePhase.endDate)}</small></div>
+        <button type="button" className="secondary" disabled={timelineIndex===0} onClick={()=>setTimelineIndex(value=>Math.max(0,value-1))}><ArrowDownLeft size={14}/>Vorige fase</button>
+        <label><input aria-label="4D bouwfase" type="range" min="0" max={familyHomeBimPhases.length-1} step="1" value={timelineIndex} onChange={event=>setTimelineIndex(Number(event.target.value))}/><span>{familyHomeBimPhases.map(phase=><i key={phase.id} className={phase.sequence-1<=timelineIndex?'complete':''}></i>)}</span></label>
+        <button type="button" className="secondary" disabled={timelineIndex===familyHomeBimPhases.length-1} onClick={()=>setTimelineIndex(value=>Math.min(familyHomeBimPhases.length-1,value+1))}>Volgende fase<ArrowRight size={14}/></button>
+        <div><span>Fasewaarde</span><strong>{money(phaseCost)}</strong><small>{phaseElements.length} modelelementen · {activePhase.progressPct}% uitgevoerd</small></div>
+      </div>}
       <div className="bim-workspace-grid">
         <aside className="bim-layers-panel">
           <div className="bim-panel-title"><div><p className="eyebrow">Modelstructuur</p><strong>Lagen & objecten</strong></div><Boxes size={17}/></div>
@@ -4402,8 +4437,8 @@ function BimCalculationWorkspace({ calculation, actions, onClose, onAdded }: { c
           <div className="bim-model-health"><span><CheckCircle2 size={16}/><strong>{ifcFile?"WebIFC geometrie actief":"Demomodel actief"}</strong></span><small>{activeElements.length} objecten hebben geometrie en een calculatieclassificatie.</small><button onClick={()=>setCategoryFilter("Alle")}><AlertTriangle size={14}/>{activeElements.filter(element=>element.warning).length} hoeveelheden te controleren</button></div>
         </aside>
         <main className="bim-viewer-panel">
-          <div className="bim-viewer-status"><span><i></i>3D-model</span><span>{visibleElements.length} zichtbaar</span><span>{selectedIds.size} geselecteerd</span></div>
-          <div className={`bim-model-scene rotation-${rotation}`} onDoubleClick={()=>{if(!ifcFile)selectGroup(visibleElements)}}>
+          <div className="bim-viewer-status"><span><i></i>{dimension==='3D'?'3D-model':dimension==='4D'?`4D · ${activePhase.label}`:'5D-kostenmodel'}</span><span>{visibleElements.filter(visibleByTimeline).length} gepland/gebouwd</span><span>{selectedIds.size} geselecteerd</span></div>
+          <div className={`bim-model-scene rotation-${rotation} mode-${dimension.toLocaleLowerCase()}`} onDoubleClick={()=>{if(!ifcFile)selectGroup(visibleElements)}}>
             <div className="bim-scene-grid"></div>
             <div className="bim-building-shadow"></div>
             {ifcFile ? <Suspense fallback={<div className="bim-ifc-loading"><span></span><strong>3D-engine laden…</strong></div>}><BimIfcViewer
@@ -4419,19 +4454,21 @@ function BimCalculationWorkspace({ calculation, actions, onClose, onAdded }: { c
               type="button"
               key={element.id}
               aria-label={`${element.label} selecteren`}
-              className={`bim-model-object bim-shape-${element.shape} category-${element.category.toLocaleLowerCase()} ${selectedIds.has(element.id)?"selected":""}`}
-              style={{left:`${element.x}%`,top:`${element.y}%`,width:`${element.width}%`,height:`${element.height}%`}}
+              className={`bim-model-object bim-shape-${element.shape} category-${element.category.toLocaleLowerCase()} ${selectedIds.has(element.id)?"selected":""} ${dimension==='4D'?timelineState(element):''} ${dimension==='5D'&&element.quantity*element.unitCost>2500?'bim-cost-high':''}`}
+              style={{left:`${element.x}%`,top:`${element.y}%`,width:`${element.width}%`,height:`${element.height}%`,'--bim-cost-ratio':Math.min(1,(element.quantity*element.unitCost)/5000)} as CSSProperties}
               onClick={event=>toggleElement(element,event.shiftKey||event.ctrlKey||event.metaKey)}
             ><span>{selectedIds.has(element.id)&&<CheckCircle2 size={14}/>}</span></button>)}
             {ifcFile&&isImporting&&<div className="bim-ifc-progress"><span style={{width:`${ifcProgress}%`}}></span><strong>{ifcProgress}%</strong></div>}
             <div className="bim-orientation"><span>N</span><i></i></div>
-            <div className="bim-selection-hint">Klik = selecteer · Shift + klik = meervoudig · dubbelklik = zichtbare selectie</div>
+            <div className="bim-selection-hint">{dimension==='3D'?'Klik = selecteer · Shift + klik = meervoudig · dubbelklik = zichtbare selectie':dimension==='4D'?`Oranje = ${activePhase.label} · groen = uitgevoerd · transparant = toekomst`:'Kleurintensiteit = directe 5D-kost · selecteer voor detail'}</div>
           </div>
           <div className="bim-view-controls"><button aria-label="Model passend tonen" onClick={()=>ifcFile?setViewerCommand({sequence:Date.now(),type:"fit"}):setRotation(value=>(value+3)%4)}><Maximize2 size={15}/></button>{ifcFile&&<><button onClick={()=>setViewerCommand({sequence:Date.now(),type:"top"})}>Boven</button><button onClick={()=>setViewerCommand({sequence:Date.now(),type:"front"})}>Voor</button><button onClick={()=>setViewerCommand({sequence:Date.now(),type:"right"})}>Rechts</button></>}<span>{ifcFile?"WebIFC":"LOD 300"}</span></div>
         </main>
         <aside className="bim-calculation-panel">
-          <div className="bim-panel-title"><div><p className="eyebrow">Gekoppelde calculatie</p><strong>Geselecteerde hoeveelheden</strong></div><Calculator size={17}/></div>
-          <div className="bim-selection-summary"><span><strong>{selectedElements.length}</strong><small>objecten</small></span><span><strong>{groupedSelection.length}</strong><small>posten</small></span><span><strong>{money(selectionTotal)}</strong><small>directe kost</small></span></div>
+          <div className="bim-panel-title"><div><p className="eyebrow">{dimension==='3D'?'Modelinformatie':dimension==='4D'?'Planning per modelelement':'Gekoppelde calculatie'}</p><strong>{dimension==='4D'?activePhase.label:'Geselecteerde hoeveelheden'}</strong></div>{dimension==='4D'?<CalendarDays size={17}/>:dimension==='5D'?<Euro size={17}/>:<Boxes size={17}/>}</div>
+          <div className="bim-selection-summary"><span><strong>{selectedElements.length}</strong><small>objecten</small></span><span><strong>{dimension==='4D'?`${activePhase.progressPct}%`:groupedSelection.length}</strong><small>{dimension==='4D'?'uitgevoerd':'posten'}</small></span><span><strong>{money(dimension==='5D'?modelTotal:dimension==='4D'?phaseCost:selectionTotal)}</strong><small>{dimension==='5D'?'modelkost':dimension==='4D'?'fasewaarde':'selectiekost'}</small></span></div>
+          {dimension==='4D'&&isFamilyHome&&<div className="bim-4d-phase-list">{familyHomeBimPhases.map((phase,index)=><button type="button" key={phase.id} className={index===timelineIndex?'active':index<timelineIndex?'complete':''} onClick={()=>setTimelineIndex(index)}><i style={{background:phase.color}}></i><span><strong>{phase.sequence}. {phase.label}</strong><small>{date(phase.startDate)} – {date(phase.endDate)}</small></span><em>{phase.progressPct}%</em></button>)}</div>}
+          {dimension==='5D'&&isFamilyHome&&<div className="bim-5d-summary"><span>Directe objectkost<strong>{money(modelTotal)}</strong></span><span>Uitvoeringsbudget<strong>{money(410_000)}</strong></span><span>Contractwaarde<strong>{money(535_000)}</strong></span><span>Doelmarge<strong>17,5%</strong></span></div>}
           <div className="bim-takeoff-list">{groupedSelection.map(group=><button key={group.category} onClick={()=>selectGroup(group.elements)}><i className={`bim-layer-dot category-${group.category.toLocaleLowerCase()}`}></i><span><strong>{group.category}</strong><small>{group.elements.length} objecten · {number(group.quantity)} {group.unit}</small></span><em>{money(group.quantity*group.unitCost)}</em></button>)}{!groupedSelection.length&&<div className="bim-empty-selection"><Boxes size={25}/><strong>Selecteer in het model</strong><span>Objecten, een laag of een volledige verdieping verschijnen hier direct als calculatieregel.</span></div>}</div>
           {selectedElements.some(element=>element.warning)&&<div className="bim-quantity-warning"><AlertTriangle size={16}/><span><strong>Hoeveelheidscontrole nodig</strong><small>{selectedElements.filter(element=>element.warning).map(element=>element.warning).join(" ")}</small></span></div>}
           <div className="bim-cost-footer"><div><span>Raming geselecteerd</span><strong>{money(selectionTotal)}</strong></div><small>Op basis van actieve BouwFlow-kostprijzen. De BIM-GUID’s blijven als bronverwijzing bewaard.</small><button className="primary" disabled={!groupedSelection.length||isAdding} onClick={()=>void addToCalculation()}><Plus size={16}/>{isAdding?"Toevoegen…":`${groupedSelection.length} post${groupedSelection.length===1?"":"en"} naar calculatie`}</button></div>
