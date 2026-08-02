@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import type { Pool, PoolClient, QueryResultRow } from 'pg'
 import { DEFAULT_COST_LIBRARY_VERSION_ID, changeOrderTotal, directCost, normalizeTenderDossier, postCalculationAnalysis, scenarioDirectCost, scenarioSellingTotal, sellingTotal, unitConversionFactor, type BoqChapter, type BoqImportPreview, type BoqItem, type BoqPriceAdjustment, type BouwFlowState, type BulkCostUpdateResult, type BulkPriceAdjustmentResult, type Calculation, type CalculationScenario, type CalculationTemplate, type CalculationVersion, type ChangeOrder, type ChangeOrderInput, type CommitmentSettlementInput, type CompanyBranch, type CompanyBranchInput, type CompanyUser, type CompanyUserAccessInput, type CompanyUserProfileInput, type CostCategory, type CostLibrary, type CostLibraryItem, type CostLibraryVersion, type DailyLaborEntry, type DailyProductionEntry, type DailyReport, type DailyReportInput, type DailyResourceEntry, type DocumentDistributionInput, type DocumentIntegrityResult, type DocumentMetadataInput, type DocumentRecipient, type DocumentRevisionInput, type DocumentUploadInput, type DocumentVersion, type IntercompanyCharge, type IntercompanyChargeInput, type LegalEntity, type LegalEntityFinancialInput, type LegalEntityInput, type MailboxLinkInput, type MailboxMessage, type MailboxOverview, type Opportunity, type OpportunityDetailsInput, type OpportunityGoNoGo, type OpportunityGoNoGoInput, type Organization, type OrganizationBillingInput, type PaymentRegistrationInput, type PeppolAcceptanceReleaseInput, type PeppolAcceptanceRun, type PeppolAcceptanceStep, type PeppolAlert, type PeppolDelivery, type PeppolIntegrationCheck, type PeppolNotification, type PeppolNotificationChannel, type PeppolNotificationSettings, type PeppolNotificationSettingsInput, type PeppolNotificationTestInput, type PeppolNotificationTestResult, type PeppolProductionGate, type PeppolValidationReport, type PeppolValidationReportInput, type PlanningActivity, type PostCalculationFeedbackInput, type ProcurementRequest, type ProcurementRequestInput, type ProgressStatement, type ProgressStatementInput, type Project, type ProjectBaselineInput, type ProjectCompanyAssignmentInput, type ProjectCost, type ProjectCostInput, type ProjectDetailsInput, type ProjectDocument, type ProjectForecast, type ProjectForecastInput, type ProjectHandover, type ProjectPlanning, type ProjectPlanningInput, type ProjectStartupInput, type ProjectWorkPackage, type PurchaseInvoiceMatchInput, type PurchaseOrder, type PurchaseReceiptInput, type QhseCertificate, type QhseCertificateInput, type QhseFinding, type QhseInspection, type QhseInspectionInput, type Quote, type QuoteContent, type QuoteSnapshot, type SalesInvoice, type SalesInvoiceInput, type SalesInvoiceIssueInput, type SitePhoto, type SitePhotoInput, type Supplier, type SupplierInput, type SupplierQuoteInput, type UnitConversion, type UnitDefinition, type WorkflowDefinition, type WorkflowDefinitionInput } from '../../src/domain.js'
 import { buildDailyReportEvidence, buildMeetstaatEvidence, workPackageBoqItems } from '../../src/progress-measurements.js'
+import { calculateContractPriceRevision } from '../../src/price-revision.js'
 import { defaultWorkflowDefinitions } from '../../src/administration.js'
 import type { InvoiceExportContext } from '../../src/invoice-export.js'
 import { boqItemQuantity, effectiveBoqValues, unitCost } from '../../src/domain.js'
@@ -13,6 +14,7 @@ import { DevelopmentAiGateway, DevelopmentIntegrationGateway, type AiGateway, ty
 import type { PeppolTransportResult } from '../peppol/access-point.js'
 import type { PeppolNotificationTarget } from '../peppol/notification.js'
 import type { CentralMailMessage } from '../microsoft365-mail.js'
+import type { PriceIndexProvider } from '../price-index-service.js'
 
 const workflowCorrectionSequences: Record<WorkflowCorrectionInput['dossierType'], string[]> = {
   opportunity: ['Nieuw','Gekwalificeerd','Go/No-Go','Calculatie','Offerte verstuurd','Onderhandeling','Gewonnen'],
@@ -432,7 +434,7 @@ function mapProgressStatement(row: ProgressStatementRow): ProgressStatement {
     retentionPct: Number(row.retention_pct), retentionAmount: Number(row.retention_amount), netAmount: Number(row.net_amount), status: row.status, notes: row.notes, createdAt: iso(row.created_at),
     submittedAt: row.submitted_at ? iso(row.submitted_at) : undefined, approvedBy: row.approved_by ?? undefined, approvedAt: row.approved_at ? iso(row.approved_at) : undefined, invoiceId: row.invoice_id ?? undefined,
     valuationDate:details.valuationDate, dueDate:details.dueDate, certificateReference:details.certificateReference, preparedBy:details.preparedBy,
-    revisionFormula:details.revisionFormula, advancePaymentAmount:Number(details.advancePaymentAmount??0), advanceRecoveryAmount:Number(details.advanceRecoveryAmount??0),
+    revisionFormula:details.revisionFormula, priceRevisionCalculation:details.priceRevisionCalculation, advancePaymentAmount:Number(details.advancePaymentAmount??0), advanceRecoveryAmount:Number(details.advanceRecoveryAmount??0),
     otherDeductionsAmount:Number(details.otherDeductionsAmount??0), evidenceDocumentIds:details.evidenceDocumentIds??[], qualityChecklist:details.qualityChecklist,
   }
 }
@@ -440,7 +442,7 @@ function mapProgressStatement(row: ProgressStatementRow): ProgressStatement {
 function progressStatementDetails(input:ProgressStatementInput) {
   return {
     valuationDate:input.valuationDate, dueDate:input.dueDate, certificateReference:input.certificateReference, preparedBy:input.preparedBy,
-    revisionFormula:input.revisionFormula, advancePaymentAmount:input.advancePaymentAmount??0, advanceRecoveryAmount:input.advanceRecoveryAmount??0,
+    revisionFormula:input.revisionFormula, priceRevisionCalculation:input.priceRevisionCalculation, advancePaymentAmount:input.advancePaymentAmount??0, advanceRecoveryAmount:input.advanceRecoveryAmount??0,
     otherDeductionsAmount:input.otherDeductionsAmount??0, evidenceDocumentIds:input.evidenceDocumentIds??[], qualityChecklist:input.qualityChecklist,
   }
 }
@@ -630,7 +632,14 @@ export class BouwFlowRepository {
     private readonly peppolIntegrationChecks: readonly PeppolIntegrationCheck[] = [],
     private readonly integrationGateway: IntegrationGateway = new DevelopmentIntegrationGateway(),
     private readonly aiGateway: AiGateway = new DevelopmentAiGateway(),
+    private readonly priceIndexProvider?: PriceIndexProvider,
   ) {}
+
+  async priceIndexCatalogue(force=false) {
+    if (!this.priceIndexProvider) throw new RepositoryError('De officiële prijsindexservice is niet geconfigureerd', 503)
+    try { return await this.priceIndexProvider.catalogue(force) }
+    catch (error) { throw new RepositoryError(`Officiële prijsindexen konden niet worden opgehaald: ${error instanceof Error ? error.message : 'onbekende fout'}`, 503) }
+  }
 
   private fallbackPeppolNotificationSettings(): PeppolNotificationSettings {
     return {
@@ -3072,7 +3081,7 @@ export class BouwFlowRepository {
       const count = await client.query<{ count: string }>('SELECT count(*)::text AS count FROM progress_statements WHERE tenant_id=$1', [context.tenantId])
       const statement: ProgressStatement = { id, number: `VS-${new Date().getFullYear()}-${String(Number(count.rows[0].count) + 1).padStart(3, '0')}`, projectId, ...input, ...calculated, status: 'Concept', createdAt: new Date().toISOString() }
       await client.query(`INSERT INTO progress_statements (tenant_id,id,number,project_id,period_start,period_end,lines,change_order_ids,work_amount,change_order_amount,price_revision_amount,gross_amount,retention_pct,retention_amount,net_amount,status,notes,created_at,details)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)`, [context.tenantId, statement.id, statement.number, projectId, statement.periodStart, statement.periodEnd, JSON.stringify(statement.lines), JSON.stringify(statement.changeOrderIds), statement.workAmount, statement.changeOrderAmount, statement.priceRevisionAmount, statement.grossAmount, statement.retentionPct, statement.retentionAmount, statement.netAmount, statement.status, statement.notes, statement.createdAt, JSON.stringify(progressStatementDetails(input))])
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)`, [context.tenantId, statement.id, statement.number, projectId, statement.periodStart, statement.periodEnd, JSON.stringify(statement.lines), JSON.stringify(statement.changeOrderIds), statement.workAmount, statement.changeOrderAmount, statement.priceRevisionAmount, statement.grossAmount, statement.retentionPct, statement.retentionAmount, statement.netAmount, statement.status, statement.notes, statement.createdAt, JSON.stringify(progressStatementDetails(statement))])
       await this.audit(client, context, 'progress_statement', statement.id, 'created', null, statement)
       return statement
     })
@@ -3085,8 +3094,8 @@ export class BouwFlowRepository {
       const current = mapProgressStatement(result.rows[0])
       if (current.status !== 'Concept') throw new RepositoryError('Alleen een conceptvorderingsstaat kan worden gewijzigd', 409)
       const calculated = await this.calculateProgressStatement(client, context.tenantId, current.projectId, input, statementId)
-      await client.query(`UPDATE progress_statements SET period_start=$3,period_end=$4,lines=$5,change_order_ids=$6,work_amount=$7,change_order_amount=$8,price_revision_amount=$9,gross_amount=$10,retention_pct=$11,retention_amount=$12,net_amount=$13,notes=$14,details=$15 WHERE tenant_id=$1 AND id=$2`, [context.tenantId, statementId, input.periodStart, input.periodEnd, JSON.stringify(calculated.lines), JSON.stringify(input.changeOrderIds), calculated.workAmount, calculated.changeOrderAmount, input.priceRevisionAmount, calculated.grossAmount, input.retentionPct, calculated.retentionAmount, calculated.netAmount, input.notes, JSON.stringify(progressStatementDetails(input))])
       const updated: ProgressStatement = { ...current, ...input, ...calculated }
+      await client.query(`UPDATE progress_statements SET period_start=$3,period_end=$4,lines=$5,change_order_ids=$6,work_amount=$7,change_order_amount=$8,price_revision_amount=$9,gross_amount=$10,retention_pct=$11,retention_amount=$12,net_amount=$13,notes=$14,details=$15 WHERE tenant_id=$1 AND id=$2`, [context.tenantId, statementId, updated.periodStart, updated.periodEnd, JSON.stringify(updated.lines), JSON.stringify(updated.changeOrderIds), updated.workAmount, updated.changeOrderAmount, updated.priceRevisionAmount, updated.grossAmount, updated.retentionPct, updated.retentionAmount, updated.netAmount, updated.notes, JSON.stringify(progressStatementDetails(updated))])
       await this.audit(client, context, 'progress_statement', statementId, 'updated', current, updated)
       return updated
     })
@@ -4178,9 +4187,28 @@ export class BouwFlowRepository {
     }
     const workAmount = cents(lines.reduce((sum, line) => sum + line.currentPeriod, 0))
     const changeOrderAmount = cents(changes.reduce((sum, change) => sum + change.total, 0))
-    const grossAmount = cents(workAmount + changeOrderAmount + input.priceRevisionAmount + (input.advancePaymentAmount??0) - (input.advanceRecoveryAmount??0) - (input.otherDeductionsAmount??0))
+    let priceRevisionAmount=input.priceRevisionAmount
+    let priceRevisionCalculation=input.priceRevisionCalculation
+    let revisionFormula=input.revisionFormula
+    const blueprint=await this.blueprintState(client,tenantId)
+    const contract=blueprint.projectContracts.find(item=>item.projectId===projectId&&item.status==='Actief'&&item.priceRevisionClause)
+    if(contract?.priceRevisionClause){
+      if(contract.approvalStatus!=='Goedgekeurd')throw new RepositoryError('Laat de gewijzigde prijsherzieningsclausule eerst goedkeuren voordat een vorderingsstaat wordt berekend',409)
+      const valuationDate=contract.priceRevisionClause.valuationDateRule==='Waarderingsdatum'?(input.valuationDate??input.periodEnd):input.periodEnd
+      try{
+        const catalogue=contract.priceRevisionClause.enabled?await this.priceIndexCatalogue():{material:[],labor:[],sources:[],synchronizedAt:new Date().toISOString()}
+        const calculation=calculateContractPriceRevision({clause:contract.priceRevisionClause,catalogue,workAmount,changeOrderAmount,valuationDate})
+        priceRevisionCalculation=calculation
+        priceRevisionAmount=calculation.revisionAmount
+        revisionFormula=calculation.formula
+      }catch(error){
+        if(error instanceof RepositoryError)throw error
+        throw new RepositoryError(`Prijsherziening kon niet contractueel worden berekend: ${error instanceof Error?error.message:'onbekende fout'}`,409)
+      }
+    }
+    const grossAmount = cents(workAmount + changeOrderAmount + priceRevisionAmount + (input.advancePaymentAmount??0) - (input.advanceRecoveryAmount??0) - (input.otherDeductionsAmount??0))
     const retentionAmount = cents(grossAmount * input.retentionPct / 100)
-    return { lines, workAmount, changeOrderAmount, grossAmount, retentionAmount, netAmount: cents(grossAmount - retentionAmount) }
+    return { lines, workAmount, changeOrderAmount, priceRevisionAmount, priceRevisionCalculation, revisionFormula, grossAmount, retentionAmount, netAmount: cents(grossAmount - retentionAmount) }
   }
 
   async mailboxOverview(context: RequestContext, configured: boolean, mailbox = ''): Promise<MailboxOverview> {

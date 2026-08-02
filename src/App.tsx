@@ -88,6 +88,8 @@ const BimProgressDialog = lazy(() => import('./BimProgressDialog'))
 const ProgressMeasurementDialog = lazy(() => import('./ProgressMeasurementDialog'))
 const MailboxPage = lazy(() => import('./MailboxPage'))
 const DossierEmailTab = lazy(() => import('./DossierEmailTab'))
+const ContractPriceRevisionPanel = lazy(() => import('./PriceRevisionFlow').then(module => ({ default: module.ContractPriceRevisionPanel })))
+const ProgressPriceRevisionPanel = lazy(() => import('./PriceRevisionFlow').then(module => ({ default: module.ProgressPriceRevisionPanel })))
 import type { IfcViewerCommand, IfcViewerElement } from "./BimIfcViewer";
 import {
   autoSchedulePlanningActivities,
@@ -198,6 +200,7 @@ import {
   type ProcurementRequestInput,
   type ProgressStatement,
   type ProgressStatementInput,
+  type PriceRevisionCalculation,
   type ProgressMeasurementMethod,
   type Project,
   type ProjectBaselineInput,
@@ -236,6 +239,7 @@ import {
   type UnitDefinition,
   type ProjectCloseoutInput,
   type ProjectContractInput,
+  type ProjectContract,
   type WorkflowDossierType,
   type WorkflowDefinition,
   type WorkflowDefinitionInput,
@@ -10135,6 +10139,7 @@ function ProgressStatements({
           project={project}
           calculation={state.calculations.find(item=>item.id===project.sourceCalculationId)}
           dailyReports={state.dailyReports.filter(item=>item.projectId===project.id)}
+          contract={state.projectContracts.find(item=>item.projectId===project.id&&item.status==='Actief')}
           actor={state.companyUsers.find(item=>item.id===state.currentUserId)?.displayName??"Projectteam"}
           statement={editing === "new" ? undefined : editing}
           statements={statements}
@@ -10176,6 +10181,7 @@ function ProgressStatementDialog({
   project,
   calculation,
   dailyReports,
+  contract,
   actor,
   statement,
   statements,
@@ -10186,6 +10192,7 @@ function ProgressStatementDialog({
   project: Project;
   calculation?: Calculation;
   dailyReports: DailyReport[];
+  contract?: ProjectContract;
   actor: string;
   statement?: ProgressStatement;
   statements: ProgressStatement[];
@@ -10202,6 +10209,7 @@ function ProgressStatementDialog({
   const today = new Date().toISOString().slice(0, 10);
   const [bimWorkPackageId,setBimWorkPackageId] = useState<string>();
   const [measurementSelection,setMeasurementSelection] = useState<{workPackageId:string;method:'Meetstaat'|'Dagrapporten'}>();
+  const [priceRevisionBlocked,setPriceRevisionBlocked]=useState(Boolean(contract?.priceRevisionClause));
   const [form, setForm] = useState<ProgressStatementInput>(
     statement
       ? {
@@ -10217,6 +10225,7 @@ function ProgressStatementDialog({
           certificateReference: statement.certificateReference ?? statement.number,
           preparedBy: statement.preparedBy ?? "",
           revisionFormula: statement.revisionFormula ?? "Contractuele prijsherzieningsformule op de waarderingsdatum",
+          priceRevisionCalculation: statement.priceRevisionCalculation,
           advancePaymentAmount: statement.advancePaymentAmount ?? 0,
           advanceRecoveryAmount: statement.advanceRecoveryAmount ?? 0,
           otherDeductionsAmount: statement.otherDeductionsAmount ?? 0,
@@ -10242,6 +10251,7 @@ function ProgressStatementDialog({
           certificateReference: "",
           preparedBy: "",
           revisionFormula: "Contractuele prijsherzieningsformule op de waarderingsdatum",
+          priceRevisionCalculation: undefined,
           advancePaymentAmount: 0,
           advanceRecoveryAmount: 0,
           otherDeductionsAmount: 0,
@@ -10292,6 +10302,7 @@ function ProgressStatementDialog({
   const retention = (gross * form.retentionPct) / 100;
   const submit = async (event: FormEvent) => {
     event.preventDefault();
+    if (priceRevisionBlocked) return;
     if (statement) await actions.updateProgressStatement(statement.id, form);
     else await actions.createProgressStatement(project.id, form);
     onClose();
@@ -10363,6 +10374,7 @@ function ProgressStatementDialog({
                 required
                 type="number"
                 step="0.01"
+                readOnly={Boolean(contract?.priceRevisionClause)}
                 value={form.priceRevisionAmount}
                 onChange={(event) =>
                   setForm({
@@ -10379,8 +10391,9 @@ function ProgressStatementDialog({
             <label>Uiterste betaaldatum<input required type="date" min={form.valuationDate??form.periodEnd} value={form.dueDate} onChange={event=>setForm({...form,dueDate:event.target.value})}/></label>
             <label>Certificaatreferentie<input value={form.certificateReference} onChange={event=>setForm({...form,certificateReference:event.target.value})} placeholder="bv. CERT-2026-08-03"/></label>
             <label>Opgemaakt door<input value={form.preparedBy} onChange={event=>setForm({...form,preparedBy:event.target.value})} placeholder="Projectmanager / quantity surveyor"/></label>
-            <label className="wide">Prijsherzieningsformule<input value={form.revisionFormula} onChange={event=>setForm({...form,revisionFormula:event.target.value})}/></label>
+            <label className="wide">Prijsherzieningsformule<input value={form.revisionFormula} readOnly={Boolean(contract?.priceRevisionClause)} onChange={event=>setForm({...form,revisionFormula:event.target.value})}/></label>
           </section>
+          <Suspense fallback={<section className="statement-price-revision"><div className="statement-price-revision-head"><h3>Prijsherziening laden…</h3></div></section>}><ProgressPriceRevisionPanel contract={contract} workAmount={workAmount} changeOrderAmount={changeAmount} valuationDate={form.valuationDate??form.periodEnd} periodEnd={form.periodEnd} current={form.priceRevisionCalculation} onLoad={actions.priceIndexCatalogue} onBlocked={setPriceRevisionBlocked} onCalculation={(calculation:PriceRevisionCalculation)=>setForm(current=>current.priceRevisionCalculation?.revisionAmount===calculation.revisionAmount&&current.priceRevisionCalculation?.factor===calculation.factor&&current.priceRevisionCalculation?.synchronizedAt===calculation.synchronizedAt?current:{...current,priceRevisionAmount:calculation.revisionAmount,revisionFormula:calculation.formula,priceRevisionCalculation:calculation})}/></Suspense>
           <section className="statement-lines">
             <div>
               <p className="eyebrow">Basisopdracht</p>
@@ -10549,7 +10562,7 @@ function ProgressStatementDialog({
           <button type="button" className="secondary" onClick={onClose}>
             Annuleren
           </button>
-          <button className="primary">Concept opslaan</button>
+          <button className="primary" disabled={priceRevisionBlocked}>Concept opslaan</button>
         </div>
       </form>
       {bimWorkPackageId&&<Suspense fallback={null}><BimProgressDialog workPackages={project.workPackages} initialWorkPackageId={bimWorkPackageId} previousPct={previousLines.get(bimWorkPackageId)?.cumulativeProgressPct??0} preparedBy={form.preparedBy??""} initialEvidence={form.lines.find(item=>item.workPackageId===bimWorkPackageId)?.bimEvidence} onClose={()=>setBimWorkPackageId(undefined)} onApply={(workPackageId,progressPct,evidence)=>{setForm(current=>({...current,qualityChecklist:{measurementsVerified:current.qualityChecklist?.measurementsVerified??false,evidenceComplete:current.qualityChecklist?.evidenceComplete??false,changesApproved:current.qualityChecklist?.changesApproved??false,bimModelValidated:evidence.status==="Gecontroleerd"},lines:current.lines.map(item=>item.workPackageId===workPackageId?{...item,cumulativeProgressPct:progressPct,measurementMethod:"BIM",measuredQuantity:evidence.verifiedQuantity,unit:evidence.unit,bimEvidence:evidence,comment:`${evidence.elementCount} BIM-elementen · ${evidence.modelName} · ${evidence.modelVersion}`}:item)}));setBimWorkPackageId(undefined)}}/></Suspense>}
@@ -14207,6 +14220,7 @@ function ContractCloseoutPage({ state, actions, onOpenDossier }: { state: BouwFl
   return <div className="contract-closeout-page">
     <section className="panel contract-project-picker"><PanelHead eyebrow="Contract tot nazorg" title="Contractdossier, oplevering en garantie"/><select value={projectId} onChange={(event) => setProjectId(event.target.value)}>{state.projects.map((item) => <option key={item.id} value={item.id}>{item.number} · {item.name}</option>)}</select></section>
     <section className="panel"><PanelHead eyebrow="Dossierregister" title="Alle contract- en opleverdossiers"/><div className="table-wrap"><table><thead><tr><th>Project</th><th>Dossiertype</th><th>Referentie</th><th>Status</th><th>Open acties</th><th/></tr></thead><tbody>{state.projects.flatMap((entry)=>{const entryContract=state.projectContracts.find((item)=>item.projectId===entry.id);const entryCloseout=state.projectCloseouts.find((item)=>item.projectId===entry.id);return [...(entryContract?[{kind:"Contract",id:entryContract.id,reference:entryContract.contractNumber??entryContract.title,status:entryContract.status,actions:entryContract.obligations.filter((item)=>item.status!=="Voltooid").length,type:"contract" as const}]:[]),...(entryCloseout?[{kind:"Oplevering",id:entryCloseout.id,reference:`OPL-${entry.number}`,status:entryCloseout.status,actions:entryCloseout.items.filter((item)=>item.status!=="Opgelost").length,type:"closeout" as const}]:[])].map((record)=><tr key={record.id}><td><button type="button" className="record-link" onClick={()=>setProjectId(entry.id)}>{entry.number}</button><span>{entry.name}</span></td><td>{record.kind}</td><td>{record.reference}</td><td><Badge text={record.status}/></td><td>{record.actions}</td><td><button type="button" className="mini-button" onClick={()=>onOpenDossier(record.type,record.id)}><FolderOpen size={14}/>Open dossier</button></td></tr>)})}</tbody></table></div></section>
+    {contract&&<Suspense fallback={<section className="panel contract-price-revision-panel"><p className="eyebrow">Contractuele prijsherziening</p><h2>Prijsherziening laden…</h2></section>}><ContractPriceRevisionPanel contract={contract} onLoad={actions.priceIndexCatalogue} onSave={async input=>{await actions.updateProjectContract(contract.id,input)}}/></Suspense>}
     <div className="enterprise-two">
       <section className="panel"><PanelHead eyebrow="Contract en risico" title={contract?.title ?? "Nog geen contractdossier"}/>
         {contract ? <><div className="contract-summary"><span>Contract<strong>{contract.contractNumber ?? contract.title}</strong></span><span>Waarde<strong>{money(contract.contractValue ?? project?.contractValue ?? 0)}</strong></span><span>Periode<strong>{date(contract.executionStart)} – {date(contract.executionEnd)}</strong></span><span>Inhouding<strong>{contract.retentionPct}%</strong></span><span>Boete/dag<strong>{money(contract.penaltyPerDay)}</strong></span></div><div className="enterprise-list">{contract.obligations.map((item) => <article key={item.id}><ClipboardList size={18}/><div><strong>{item.title}</strong><span>{item.owner} · {date(item.dueDate)}</span></div><Badge text={item.status}/>{item.status !== "Voltooid" && <button className="mini-button" onClick={() => void actions.completeContractObligation(contract.id, item.id)}>Voltooien</button>}</article>)}</div><div className="contract-risk-list">{contract.risks.map((risk) => <article key={risk.id}><AlertTriangle size={16}/><span><strong>{risk.description}</strong><small>{risk.owner} · {risk.mitigation}</small></span><Badge text={risk.impact}/></article>)}</div><div className="contract-registers"><section><h3>Zekerheden en verzekeringen</h3><div className="enterprise-list">{(contract.securities ?? []).map((item)=><article key={item.id}><ShieldCheck size={16}/><div><strong>{item.type} · {item.reference}</strong><span>{item.issuer} · {money(item.amount)}{item.expiresOn ? ` · tot ${date(item.expiresOn)}` : ""}</span></div><Badge text={item.status}/></article>)}</div><form className="stacked-enterprise-form" onSubmit={(event)=>{event.preventDefault();void actions.updateProjectContract(contract.id,{securities:[...(contract.securities ?? []),{id:createId(),...security,expiresOn:security.expiresOn||undefined,status:"Actief"}]});setSecurity({...security,reference:"",issuer:"",amount:0,expiresOn:""})}}><select value={security.type} onChange={(event)=>setSecurity({...security,type:event.target.value as typeof security.type})}>{["Borgstelling","Bankgarantie","Verzekering"].map((value)=><option key={value}>{value}</option>)}</select><input required placeholder="Referentie" value={security.reference} onChange={(event)=>setSecurity({...security,reference:event.target.value})}/><input required placeholder="Uitgever" value={security.issuer} onChange={(event)=>setSecurity({...security,issuer:event.target.value})}/><input required type="number" min="0" placeholder="Bedrag" value={security.amount} onChange={(event)=>setSecurity({...security,amount:Number(event.target.value)})}/><input type="date" value={security.expiresOn} onChange={(event)=>setSecurity({...security,expiresOn:event.target.value})}/><button className="secondary">Zekerheid toevoegen</button></form></section><section><h3>Correspondentie</h3><div className="enterprise-list">{(contract.correspondence ?? []).map((item)=><article key={item.id}><Send size={16}/><div><strong>{item.type} · {item.subject}</strong><span>{date(item.date)} · {item.sender} → {item.recipient}</span></div>{item.documentId && <button type="button" className="mini-button" onClick={()=>onOpenDossier("document",item.documentId!)}>Document</button>}</article>)}</div><form className="stacked-enterprise-form" onSubmit={(event)=>{event.preventDefault();void actions.updateProjectContract(contract.id,{correspondence:[...(contract.correspondence ?? []),{id:createId(),...correspondence,documentId:correspondence.documentId||undefined}]});setCorrespondence({...correspondence,subject:"",sender:"",recipient:"",documentId:""})}}><select value={correspondence.type} onChange={(event)=>setCorrespondence({...correspondence,type:event.target.value as typeof correspondence.type})}>{["Brief","E-mail","Verslag","Ingebrekestelling","Termijnmelding"].map((value)=><option key={value}>{value}</option>)}</select><input required type="date" value={correspondence.date} onChange={(event)=>setCorrespondence({...correspondence,date:event.target.value})}/><input required placeholder="Onderwerp" value={correspondence.subject} onChange={(event)=>setCorrespondence({...correspondence,subject:event.target.value})}/><input required placeholder="Afzender" value={correspondence.sender} onChange={(event)=>setCorrespondence({...correspondence,sender:event.target.value})}/><input required placeholder="Ontvanger" value={correspondence.recipient} onChange={(event)=>setCorrespondence({...correspondence,recipient:event.target.value})}/><select value={correspondence.documentId} onChange={(event)=>setCorrespondence({...correspondence,documentId:event.target.value})}><option value="">Geen document</option>{state.documents.filter((item)=>item.projectId===contract.projectId).map((item)=><option key={item.id} value={item.id}>{item.title}</option>)}</select><button className="secondary">Correspondentie registreren</button></form></section><section><h3>Claims en termijnimpact</h3><div className="enterprise-list">{state.projectClaims.filter((item)=>item.projectId===contract.projectId).map((item)=><article key={item.id}><AlertTriangle size={16}/><div><strong>{item.number} · {item.title}</strong><span>{money(item.amount)} · {item.extensionDays} dagen</span></div><Badge text={item.status}/><button type="button" className="mini-button" onClick={()=>onOpenDossier("project-claim",item.id)}><FolderOpen size={14}/>Dossier</button></article>)}</div><form className="stacked-enterprise-form" onSubmit={(event)=>{event.preventDefault();void actions.createProjectClaim({projectId:contract.projectId,type:claim.scheduleImpactDays>0?"Termijnverlenging":"Financiële claim",cause:claim.title,description:claim.title,amount:claim.amount,extensionDays:claim.scheduleImpactDays,responsibleParty:"Opdrachtgever",documentIds:[],createdBy:state.companyUsers.find((item)=>item.id===state.currentUserId)?.displayName??"Projectmanager"});setClaim({...claim,number:"",title:"",amount:0,scheduleImpactDays:0})}}><input required placeholder="Claimnummer" value={claim.number} onChange={(event)=>setClaim({...claim,number:event.target.value})}/><input required placeholder="Titel" value={claim.title} onChange={(event)=>setClaim({...claim,title:event.target.value})}/><input type="number" placeholder="Bedrag" value={claim.amount} onChange={(event)=>setClaim({...claim,amount:Number(event.target.value)})}/><input type="number" placeholder="Termijnimpact dagen" value={claim.scheduleImpactDays} onChange={(event)=>setClaim({...claim,scheduleImpactDays:Number(event.target.value)})}/><button className="secondary">Claim toevoegen</button></form></section></div></> : <EmptyState icon={FileCheck2} title="Contractverplichtingen nog niet omgezet" text="Maak het contractdossier en zet termijnen en risico’s om in opvolgbare acties."/>}

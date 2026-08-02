@@ -9,7 +9,9 @@ import { BouwFlowRepository } from './db/repository.js'
 import { DEVELOPMENT_LEGAL_ENTITY_ID, DEVELOPMENT_PROJECT_MANAGER_ID, DEVELOPMENT_SERVICE_ENTITY_ID, seedDevelopmentData } from './db/seed.js'
 import { BOUWFLOW_DEMO_TENANT_ID } from './db/production-demo-seed.js'
 import { productionDemoUserIds } from './db/production-demo-full-seed.js'
+import { StaticPriceIndexProvider } from './price-index-service.js'
 import { MemoryObjectStorage } from './storage.js'
+import { demoPriceIndexCatalogue } from '../src/price-revision.js'
 
 const organizationId = '10000000-0000-4000-8000-000000000001'
 const favorableGoNoGo = { decision: 'Go', scores: { capacity: 4, financialRisk: 4, recognition: 5, technicalFeasibility: 4, expectedMargin: 4, competition: 3, strategicValue: 5, resources: 4, subcontractors: 4, contractRisk: 4 }, notes: 'Positieve beoordeling voor calculatie', assessedBy: 'Test tender manager' }
@@ -84,6 +86,7 @@ describe('BouwFlow API', () => {
     app = await buildApp({
       pool,
       objectStorage: new MemoryObjectStorage(),
+      priceIndexProvider: new StaticPriceIndexProvider(demoPriceIndexCatalogue),
       peppolWebhookSecret: 'test-webhook-secret',
       peppolWebhookPublicUrl: 'https://bouwflow.example/api/integrations/peppol/webhook',
       peppolNotificationTargets: [{ channel: 'E-mail', destination: 'finance@example.be' }, { channel: 'Teams', destination: 'Financiën' }],
@@ -112,6 +115,32 @@ describe('BouwFlow API', () => {
 
   afterEach(async () => {
     await app.close()
+  })
+
+  it('levert de gesynchroniseerde officiële indexcatalogus aan interne gebruikers', async () => {
+    const response = await app.inject({ method: 'GET', url: '/api/price-indexes?refresh=true' })
+    expect(response.statusCode, response.body).toBe(200)
+    const catalogue=response.json()
+    expect(catalogue.synchronizedAt).toBe(demoPriceIndexCatalogue.synchronizedAt)
+    expect(catalogue.material).toContainEqual(expect.objectContaining({ series: 'I-2021' }))
+    expect(catalogue.labor).toContainEqual(expect.objectContaining({ series: 'S', category: 'A' }))
+  })
+
+  it('berekent prijsherziening servergestuurd volgens de goedgekeurde contractclausule', async () => {
+    const project=await createEnterpriseTestProject(app)
+    const signedDocument=await app.inject({method:'POST',url:`/api/projects/${project.id}/documents`,...multipartDocument({title:'Getekend contract prijsherziening',category:'Contract',notes:'Contract met prijsherzieningsclausule.',uploadedBy:'Projectdirectie'},Buffer.from('%PDF-contract'),'prijsherziening-contract.pdf')})
+    expect(signedDocument.statusCode,signedDocument.body).toBe(201)
+    const contract=(await app.inject({method:'POST',url:`/api/projects/${project.id}/contracts`,payload:{
+      title:'Aanneming met automatische prijsherziening',signedOn:'2026-04-18',executionStart:'2026-05-01',executionEnd:'2026-12-31',paymentTerms:'30 dagen',retentionPct:5,penaltyPerDay:500,priceRevision:'I-2021 en S',documentIds:[signedDocument.json().id],obligations:[],risks:[],
+      priceRevisionClause:{enabled:true,formulaType:'I-2021 en S',laborWeightPct:40,materialWeightPct:40,fixedWeightPct:20,laborCategory:'A',employerSize:'Meer dan 20',baseDate:'2026-04-18',baseMaterialPeriod:'2026-04',valuationDateRule:'Waarderingsdatum',availabilityPolicy:'Exacte periode vereist',applicationBase:'Werken',sourceClauseReference:'Bestek art. 14.2'},
+    }})).json()
+    expect((await app.inject({method:'POST',url:`/api/contracts/${contract.id}/submit`})).statusCode).toBe(200)
+    expect((await app.inject({method:'POST',url:`/api/contracts/${contract.id}/approve`})).statusCode).toBe(200)
+
+    const response=await app.inject({method:'POST',url:`/api/projects/${project.id}/progress-statements`,payload:{periodStart:'2026-06-01',periodEnd:'2026-06-30',valuationDate:'2026-06-30',lines:[{workPackageId:project.workPackages[0].id,cumulativeProgressPct:50}],changeOrderIds:[],priceRevisionAmount:999_999,retentionPct:5,notes:'Servercontrole prijsherziening.'}})
+    expect(response.statusCode,response.body).toBe(201)
+    expect(response.json()).toMatchObject({priceRevisionCalculation:{status:'Definitief',sourceClauseReference:'Bestek art. 14.2',material:{basePeriod:'2026-04',currentPeriod:'2026-06'}},revisionFormula:expect.stringContaining('s/S')})
+    expect(response.json().priceRevisionAmount).not.toBe(999_999)
   })
 
   it('zoekt Belgische adressen voor het relatieformulier', async () => {

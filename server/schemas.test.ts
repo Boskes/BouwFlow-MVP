@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { organizationSchema, progressStatementSchema } from './schemas'
+import { organizationSchema, priceRevisionClauseSchema, progressStatementSchema } from './schemas'
 
 const organization = {
   name: 'Bouwpartner NV',
@@ -56,5 +56,17 @@ describe('progressStatementSchema BIM-certificatie',()=>{
   it('weigert een betaaldatum vóór de waarderingsdatum',()=>{
     const result=progressStatementSchema.safeParse({periodStart:'2026-08-01',periodEnd:'2026-08-31',valuationDate:'2026-08-31',dueDate:'2026-08-15',changeOrderIds:[],priceRevisionAmount:0,retentionPct:5,notes:'',lines:[{workPackageId,cumulativeProgressPct:10}]})
     expect(result.success).toBe(false)
+  })
+})
+
+describe('priceRevisionClauseSchema',()=>{
+  const valid={enabled:true,formulaType:'I-2021 en S',laborWeightPct:40,materialWeightPct:40,fixedWeightPct:20,laborCategory:'A',employerSize:'Meer dan 20',baseDate:'2026-01-15',baseMaterialPeriod:'2026-01',valuationDateRule:'Waarderingsdatum',availabilityPolicy:'Voorlopig met correctie',applicationBase:'Werken en meerwerken',sourceClauseReference:'Bestek art. 12.4'}
+
+  it('aanvaardt een volledige contractuele formule',()=>{
+    expect(priceRevisionClauseSchema.safeParse(valid).success).toBe(true)
+  })
+
+  it('weigert gewichten die niet samen 100 procent vormen',()=>{
+    expect(priceRevisionClauseSchema.safeParse({...valid,fixedWeightPct:15}).success).toBe(false)
   })
 })

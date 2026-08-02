@@ -393,6 +393,11 @@ async function seedBlueprintAndOperations(client: PoolClient, tenantId: string) 
     projectClaims: mergeById(jsonArray(current?.project_claims as never), [{ id: id('project-claim', 'utilities'), number: 'CL-OWV-0001', title: 'Termijnverlenging nutsleidingen', projectId: DEMO_PROJECT_ID, changeOrderId: id('change', 'oosterweel-cables'), type: 'Termijnverlenging', cause: 'Niet-gekarteerde nutsleidingen', description: 'Verlenging wegens bijkomende detectie en tijdelijke omlegging.', amount: 425000, extensionDays: 8, responsibleParty: 'Opdrachtgever', documentIds: [documentIds.report], status: 'Ingediend', createdBy: 'Lena Vermeulen', createdAt: '2026-09-18T09:00:00.000Z', submittedAt: '2026-09-20T09:00:00.000Z' }]),
     workflowDefinitions: jsonArray(current?.workflow_definitions as never).length ? jsonArray(current?.workflow_definitions as never) : defaultWorkflowDefinitions,
   }
+  const demoContract=merged.projectContracts.find(item=>item.id===id('project-contract','oosterweel'))
+  if(demoContract&&!demoContract.priceRevisionClause){
+    demoContract.priceRevision='p = P × [0,40 × (s/S) + 0,40 × (i-2021/I-2021) + 0,20]'
+    demoContract.priceRevisionClause={enabled:true,formulaType:'I-2021 en S',laborWeightPct:40,materialWeightPct:40,fixedWeightPct:20,laborCategory:'A',employerSize:'Meer dan 20',baseDate:'2026-08-15',baseMaterialPeriod:'2026-06',valuationDateRule:'Waarderingsdatum',availabilityPolicy:'Voorlopig met correctie',applicationBase:'Werken en meerwerken',sourceClauseReference:'Bijzonder bestek Oosterweel Rechteroever · art. 14.2'}
+  }
   await client.query(
     `INSERT INTO blueprint_state
       (tenant_id,subcontractors,qhse_events,joint_ventures,integration_connections,integration_jobs,ai_analyses,project_contracts,project_closeouts,employees,employee_absences,employee_crews,work_tickets,time_entries,project_claims,workflow_definitions,updated_at)

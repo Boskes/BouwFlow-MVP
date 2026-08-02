@@ -3,6 +3,7 @@ import type { CrmActivity, DocumentMetadataInput, DocumentRecordLinkInput, Organ
 import type { AuditTrailEntry } from './domain'
 import type { WorkflowCorrectionInput, WorkflowCorrectionResult } from './domain'
 import type { CloseoutItem, ProjectCloseoutUpdateInput, ServiceRequestInput } from './domain'
+import type { PriceIndexCatalogue } from './domain'
 import type { Asset, AssetInput, AssetOperationalInput, InventoryCountInput, InventoryItem, InventoryItemInput, StockMovement, StockMovementInput, Warehouse, WarehouseInput } from './domain'
 import type { AiAnalysis, AiAnalysisInput, Employee, EmployeeAbsence, EmployeeAbsenceDecisionInput, EmployeeAbsenceInput, EmployeeCrew, EmployeeCrewInput, EmployeeInput, IntegrationConnection, IntegrationConnectionInput, IntegrationJob, IntegrationJobInput, JointVenture, JointVentureInput, ProjectClaim, ProjectClaimInput, ProjectCloseout, ProjectCloseoutInput, ProjectContract, ProjectContractInput, ProjectContractUpdateInput, QhseEvent, QhseEventInput, Subcontractor, SubcontractorInput, SubcontractorOperationInput, TimeEntry, TimeEntryInput, WorkTicket, WorkTicketInput } from './domain'
 import { canQueueOffline, countQueuedMutations, enqueueMutation, queuedMutations, removeQueuedMutation, updateQueuedMutation } from './offline-queue'
@@ -397,6 +398,7 @@ export class BouwFlowApi {
   processIntegrationJob(id:string) { return this.request<IntegrationJob>(`/api/integration-jobs/${encodeURIComponent(id)}/process`,{method:'POST'}) }
   createAiAnalysis(projectId:string,input:AiAnalysisInput) { return this.request<AiAnalysis>(`/api/projects/${encodeURIComponent(projectId)}/ai-analyses`,{method:'POST',body:JSON.stringify(input)}) }
   approveAiAnalysis(id:string,approvedBy:string) { return this.request<AiAnalysis>(`/api/ai-analyses/${encodeURIComponent(id)}/approve`,{method:'POST',body:JSON.stringify({approvedBy})}) }
+  priceIndexCatalogue(refresh=false) { return this.request<PriceIndexCatalogue>(`/api/price-indexes${refresh?'?refresh=true':''}`) }
   createProjectContract(projectId:string,input:ProjectContractInput) { return this.request<ProjectContract>(`/api/projects/${encodeURIComponent(projectId)}/contracts`,{method:'POST',body:JSON.stringify(input)}) }
   updateProjectContract(contractId:string,input:ProjectContractUpdateInput) { return this.request<ProjectContract>(`/api/contracts/${encodeURIComponent(contractId)}`,{method:'PATCH',body:JSON.stringify(input)}) }
   submitProjectContract(contractId:string) { return this.request<ProjectContract>(`/api/contracts/${encodeURIComponent(contractId)}/submit`,{method:'POST'}) }

@@ -30,6 +30,7 @@ import { serviceRequestSchema } from './schemas.js'
 import { HttpBelgianAddressSearch, type BelgianAddressSearch } from './belgian-address-search.js'
 import { getBimProductionTestModel } from '../src/bim-test-models.js'
 import { createMicrosoft365MailService, type CentralMailService } from './microsoft365-mail.js'
+import { OfficialBelgianPriceIndexService, type PriceIndexProvider } from './price-index-service.js'
 
 type BimTestModelFetch = (input: string | URL | Request, init?: RequestInit) => Promise<Response>
 
@@ -60,6 +61,7 @@ export interface BuildAppOptions {
   centralMailService?: CentralMailService
   belgianAddressSearch?: BelgianAddressSearch
   bimTestModelFetch?: BimTestModelFetch
+  priceIndexProvider?: PriceIndexProvider
 }
 
 declare module 'fastify' {
@@ -108,7 +110,7 @@ function multipartField(fields: Record<string, unknown>, name: string) {
   return value && typeof value === 'object' && 'value' in value ? String((value as { value: unknown }).value) : undefined
 }
 
-export async function buildApp({ pool, authMode = 'development', logger = false, frontendOrigin = 'http://localhost:5173', objectStorage = new LocalObjectStorage(), peppolValidator = createPeppolValidator(), peppolAccessPoint = createPeppolAccessPoint(), peppolWebhookSecret = process.env.PEPPOL_WEBHOOK_SECRET ?? '', peppolWebhookPublicUrl = process.env.PEPPOL_WEBHOOK_PUBLIC_URL ?? '', peppolStatusPollIntervalMs, peppolNotificationSender, peppolNotificationTargets: configuredNotificationTargets, peppolNotificationDispatchIntervalMs, peppolCriticalSlaMinutes = Number(process.env.PEPPOL_CRITICAL_SLA_MINUTES ?? 15), trustProxy = false, rateLimitMax = 5_000, rateLimitWindowMs = 60_000, release = 'development', requireIdempotencyKey = false, integrationGateway = createIntegrationGateway(requireIdempotencyKey), aiGateway = createAiGateway(requireIdempotencyKey), quoteMailGateway: configuredQuoteMailGateway, documentMailGateway: configuredDocumentMailGateway, centralMailService: configuredCentralMailService, belgianAddressSearch = new HttpBelgianAddressSearch(), bimTestModelFetch = fetch }: BuildAppOptions) {
+export async function buildApp({ pool, authMode = 'development', logger = false, frontendOrigin = 'http://localhost:5173', objectStorage = new LocalObjectStorage(), peppolValidator = createPeppolValidator(), peppolAccessPoint = createPeppolAccessPoint(), peppolWebhookSecret = process.env.PEPPOL_WEBHOOK_SECRET ?? '', peppolWebhookPublicUrl = process.env.PEPPOL_WEBHOOK_PUBLIC_URL ?? '', peppolStatusPollIntervalMs, peppolNotificationSender, peppolNotificationTargets: configuredNotificationTargets, peppolNotificationDispatchIntervalMs, peppolCriticalSlaMinutes = Number(process.env.PEPPOL_CRITICAL_SLA_MINUTES ?? 15), trustProxy = false, rateLimitMax = 5_000, rateLimitWindowMs = 60_000, release = 'development', requireIdempotencyKey = false, integrationGateway = createIntegrationGateway(requireIdempotencyKey), aiGateway = createAiGateway(requireIdempotencyKey), quoteMailGateway: configuredQuoteMailGateway, documentMailGateway: configuredDocumentMailGateway, centralMailService: configuredCentralMailService, belgianAddressSearch = new HttpBelgianAddressSearch(), bimTestModelFetch = fetch, priceIndexProvider:configuredPriceIndexProvider }: BuildAppOptions) {
   const app = Fastify({ logger, trustProxy, bodyLimit: 12 * 1024 * 1024, requestIdHeader: 'x-request-id', routerOptions: { maxParamLength: 1_024 } })
   const rateLimits = new Map<string, { count: number; resetAt: number }>()
   const metrics = new ApiMetrics()
@@ -147,7 +149,8 @@ export async function buildApp({ pool, authMode = 'development', logger = false,
     { id: 'notification-connector', label: 'Notificatieconnector', ready: Boolean(notificationSender), detail: notificationSender ? `${notificationProvider}: ${notificationChannels.join(' en ') || 'geen actief kanaal'}.` : 'Geen e-mail- of Teams-connector geconfigureerd.' },
     { id: 'notification-dispatcher', label: 'Notificatiedispatcher', ready: Boolean(notificationSender && notificationInterval), detail: notificationSender && notificationInterval ? `Outboxverwerking is actief om de ${Math.round(notificationInterval / 1_000)} seconden.` : 'Automatische outboxverwerking is uitgeschakeld.' },
   ]
-  const repository = new BouwFlowRepository(pool, objectStorage, notificationTargets, criticalSlaMinutes, Boolean(notificationSender), notificationProvider, notificationChannels, integrationChecks, integrationGateway, aiGateway)
+  const priceIndexProvider=configuredPriceIndexProvider??new OfficialBelgianPriceIndexService()
+  const repository = new BouwFlowRepository(pool, objectStorage, notificationTargets, criticalSlaMinutes, Boolean(notificationSender), notificationProvider, notificationChannels, integrationChecks, integrationGateway, aiGateway, priceIndexProvider)
   const authenticate = createAuthenticator(authMode)
   const peppolStatusMonitor = new PeppolStatusMonitor(repository, peppolAccessPoint, pollInterval, pollInterval, app.log)
   const notificationDispatcher = notificationSender ? new PeppolNotificationDispatcher(repository, notificationSender, notificationInterval, app.log) : undefined
@@ -849,6 +852,11 @@ export async function buildApp({ pool, authMode = 'development', logger = false,
   app.post('/api/change-orders/:id/ready-for-invoice', { preHandler: requireRoles('Administrator', 'Projectmanager', 'Financiële administratie') }, async request => {
     const { id } = uuidParams.parse(request.params)
     return repository.readyChangeOrderForInvoice(request.context, id)
+  })
+
+  app.get('/api/price-indexes', { preHandler: requireRoles('Administrator','Directie','Projectdirecteur','Projectmanager','Financiële administratie') }, async request => {
+    const query=z.object({refresh:z.stringbool().optional()}).parse(request.query)
+    return repository.priceIndexCatalogue(query.refresh??false)
   })
 
   app.post('/api/projects/:id/progress-statements', { preHandler: requireRoles('Administrator', 'Projectmanager', 'Financiële administratie') }, async (request, reply) => {

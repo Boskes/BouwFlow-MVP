@@ -1542,6 +1542,76 @@ export interface ContractVersion {
   createdAt: string
 }
 
+export type PriceRevisionLaborCategory = 'A' | 'B' | 'C' | 'D'
+export type PriceRevisionEmployerSize = 'Minder dan 10' | '10 tot 20' | 'Meer dan 20'
+export type PriceRevisionAvailabilityPolicy = 'Laatste officiële index' | 'Voorlopig met correctie' | 'Exacte periode vereist'
+export type PriceRevisionApplicationBase = 'Werken' | 'Werken en meerwerken'
+
+export interface PriceRevisionClause {
+  enabled: boolean
+  formulaType: 'I-2021 en S'
+  laborWeightPct: number
+  materialWeightPct: number
+  fixedWeightPct: number
+  laborCategory: PriceRevisionLaborCategory
+  employerSize: PriceRevisionEmployerSize
+  baseDate: string
+  baseMaterialPeriod: string
+  valuationDateRule: 'Waarderingsdatum' | 'Einde vorderingsperiode'
+  availabilityPolicy: PriceRevisionAvailabilityPolicy
+  applicationBase: PriceRevisionApplicationBase
+  sourceClauseReference: string
+}
+
+export interface MaterialPriceIndexValue {
+  series: 'I-2021'
+  period: string
+  value: number
+}
+
+export interface LaborPriceIndexValue {
+  series: 'S'
+  smallEffectiveDate: string
+  baseEffectiveDate: string
+  employerSize: PriceRevisionEmployerSize
+  category: PriceRevisionLaborCategory
+  value: number
+}
+
+export interface PriceIndexSource {
+  id: 'fod-i2021' | 'fod-s'
+  name: string
+  url: string
+  fetchedAt: string
+  publishedThrough: string
+}
+
+export interface PriceIndexCatalogue {
+  material: MaterialPriceIndexValue[]
+  labor: LaborPriceIndexValue[]
+  sources: PriceIndexSource[]
+  synchronizedAt: string
+}
+
+export interface PriceRevisionCalculation {
+  status: 'Niet van toepassing' | 'Definitief' | 'Voorlopig'
+  formula: string
+  sourceClauseReference: string
+  valuationDate: string
+  baseAmount: number
+  factor: number
+  revisedAmount: number
+  revisionAmount: number
+  labor: { weightPct:number; baseValue:number; currentValue:number; baseDate:string; currentDate:string; category:PriceRevisionLaborCategory; employerSize:PriceRevisionEmployerSize }
+  material: { weightPct:number; baseValue:number; currentValue:number; basePeriod:string; currentPeriod:string }
+  fixedWeightPct: number
+  applicationBase: PriceRevisionApplicationBase
+  calculatedAt: string
+  synchronizedAt: string
+  sources: PriceIndexSource[]
+  warnings: string[]
+}
+
 export interface ProjectContract {
   id: string
   projectId: string
@@ -1553,6 +1623,7 @@ export interface ProjectContract {
   retentionPct: number
   penaltyPerDay: number
   priceRevision: string
+  priceRevisionClause?: PriceRevisionClause
   contractNumber?: string
   contractType?: 'Openbare opdracht' | 'Private aanneming' | 'Onderaanneming' | 'THV'
   clientOrganizationId?: string
@@ -1575,7 +1646,7 @@ export interface ProjectContract {
 }
 
 export type ProjectContractInput = Omit<ProjectContract, 'id' | 'projectId' | 'status' | 'versions' | 'approvalStatus' | 'submittedBy' | 'submittedAt' | 'approvedBy' | 'approvedAt' | 'createdAt'>
-export type ProjectContractUpdateInput = Partial<Pick<ProjectContract, 'title' | 'signedOn' | 'executionStart' | 'executionEnd' | 'paymentTerms' | 'retentionPct' | 'penaltyPerDay' | 'priceRevision' | 'contractNumber' | 'contractType' | 'clientOrganizationId' | 'contractValue' | 'currency' | 'documentIds' | 'securities' | 'correspondence' | 'claims' | 'status'>>
+export type ProjectContractUpdateInput = Partial<Pick<ProjectContract, 'title' | 'signedOn' | 'executionStart' | 'executionEnd' | 'paymentTerms' | 'retentionPct' | 'penaltyPerDay' | 'priceRevision' | 'priceRevisionClause' | 'contractNumber' | 'contractType' | 'clientOrganizationId' | 'contractValue' | 'currency' | 'documentIds' | 'securities' | 'correspondence' | 'claims' | 'status'>>
 
 export interface CloseoutItem {
   id: string
@@ -1745,6 +1816,7 @@ export interface ProgressStatementInput {
   certificateReference?: string
   preparedBy?: string
   revisionFormula?: string
+  priceRevisionCalculation?: PriceRevisionCalculation
   advancePaymentAmount?: number
   advanceRecoveryAmount?: number
   otherDeductionsAmount?: number
@@ -1784,6 +1856,7 @@ export interface ProgressStatement {
   certificateReference?: string
   preparedBy?: string
   revisionFormula?: string
+  priceRevisionCalculation?: PriceRevisionCalculation
   advancePaymentAmount?: number
   advanceRecoveryAmount?: number
   otherDeductionsAmount?: number

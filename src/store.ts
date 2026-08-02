@@ -21,6 +21,7 @@ import { buildOosterweelClass8DemoCalculation } from './class8-demo-calculation'
 import { buildFamilyHomeBimCalculation, buildFamilyHomeBimProgressStatement, buildFamilyHomeBimProject } from './family-home-bim'
 import { getBimProductionTestModel } from './bim-test-models'
 import { buildDailyReportEvidence, buildMeetstaatEvidence } from './progress-measurements'
+import { calculateContractPriceRevision, demoPriceIndexCatalogue } from './price-revision'
 
 const STORAGE_KEY = 'bouwflow.mvp.v1'
 const DEMO_DATA_VERSION_KEY = 'bouwflow.demo.version'
@@ -546,6 +547,11 @@ const submittedN72Report = seed.dailyReports.find(report => report.id === 'repor
 if (submittedN72Report) {
   submittedN72Report.productionEntries = [{ id: 'production-n72-submitted-1', workPackageId: 'wp-n72-1', boqItemId: 'item-1', description: 'Opbraak bestaande verharding', quantity: 600, unit: 'm²' }]
 }
+const n72Contract=seed.projectContracts.find(contract=>contract.id==='contract-n72')
+if(n72Contract&&!n72Contract.priceRevisionClause){
+  n72Contract.priceRevision='p = P × [0,40 × (s/S) + 0,40 × (i-2021/I-2021) + 0,20]'
+  n72Contract.priceRevisionClause={enabled:true,formulaType:'I-2021 en S',laborWeightPct:40,materialWeightPct:40,fixedWeightPct:20,laborCategory:'A',employerSize:'Meer dan 20',baseDate:'2026-06-18',baseMaterialPeriod:'2026-04',valuationDateRule:'Waarderingsdatum',availabilityPolicy:'Voorlopig met correctie',applicationBase:'Werken en meerwerken',sourceClauseReference:'Bestek AWV-LIM-2026-041 · art. 14.2'}
+}
 
 const emptyState: BouwFlowState = { currentUserId: '', companyUsers: [], workflowDefinitions: [], workflowCorrections: [], legalEntities: [], companyBranches: [], organizations: [], opportunities: [], calculations: [], calculationVersions: [], calculationScenarios: [], costLibraries: [], costLibraryVersions: [], costLibrary: [], units: [], unitConversions: [], quotes: [], projects: [], dailyReports: [], sitePhotos: [], changeOrders: [], progressStatements: [], salesInvoices: [], peppolValidationReports: [], peppolDeliveries: [], peppolAcceptanceRuns: [], peppolAlerts: [], peppolNotifications: [], peppolNotificationSettings: { emailRecipients: [], teamsTargets: [], criticalSlaMinutes: 15, connectorConfigured: false, connectorProvider: 'Niet geconfigureerd', connectorChannels: [], integrationChecks: [], productionGate: { released: false } }, intercompanyCharges: [], projectCosts: [], projectForecasts: [], suppliers: [], procurementRequests: [], purchaseOrders: [], documents: [], qhseCertificates: [], qhseInspections: [], assets: [], warehouses: [], inventoryItems: [], stockMovements: [], subcontractors: [], qhseEvents: [], jointVentures: [], integrationConnections: [], integrationJobs: [], aiAnalyses: [], projectContracts: [], projectCloseouts: [], employees: [], employeeAbsences: [], employeeCrews: [], workTickets: [], timeEntries: [], projectClaims: [] }
 
@@ -584,9 +590,14 @@ function calculateLocalProgressStatement(state: BouwFlowState, project: Project,
   })
   const workAmount = roundCents(lines.reduce((sum, line) => sum + line.currentPeriod, 0))
   const changeOrderAmount = roundCents(state.changeOrders.filter(item => input.changeOrderIds.includes(item.id)).reduce((sum, item) => sum + item.total, 0))
-  const grossAmount = roundCents(workAmount + changeOrderAmount + input.priceRevisionAmount + (input.advancePaymentAmount ?? 0) - (input.advanceRecoveryAmount ?? 0) - (input.otherDeductionsAmount ?? 0))
+  const contract=state.projectContracts.find(item=>item.projectId===project.id&&item.status==='Actief'&&item.approvalStatus==='Goedgekeurd'&&item.priceRevisionClause)
+  const valuationDate=contract?.priceRevisionClause?.valuationDateRule==='Einde vorderingsperiode'?input.periodEnd:(input.valuationDate??input.periodEnd)
+  const priceRevisionCalculation=contract?.priceRevisionClause?calculateContractPriceRevision({clause:contract.priceRevisionClause,catalogue:demoPriceIndexCatalogue,workAmount,changeOrderAmount,valuationDate}):input.priceRevisionCalculation
+  const priceRevisionAmount=priceRevisionCalculation?.revisionAmount??input.priceRevisionAmount
+  const revisionFormula=priceRevisionCalculation?.formula??input.revisionFormula
+  const grossAmount = roundCents(workAmount + changeOrderAmount + priceRevisionAmount + (input.advancePaymentAmount ?? 0) - (input.advanceRecoveryAmount ?? 0) - (input.otherDeductionsAmount ?? 0))
   const retentionAmount = roundCents(grossAmount * input.retentionPct / 100)
-  return { lines, workAmount, changeOrderAmount, grossAmount, retentionAmount, netAmount: roundCents(grossAmount - retentionAmount) }
+  return { lines, workAmount, changeOrderAmount,priceRevisionAmount,priceRevisionCalculation,revisionFormula,grossAmount, retentionAmount, netAmount: roundCents(grossAmount - retentionAmount) }
 }
 
 function patchBoqItem(item: BoqItem, patch: Partial<BoqItem>): BoqItem {
@@ -1833,6 +1844,7 @@ export function useBouwFlowStore(tokenProvider?: () => Promise<string | undefine
     async processIntegrationJob(id:string){if(api){await remote(()=>api.processIntegrationJob(id),result=>setState(current=>({...current,integrationJobs:current.integrationJobs.map(item=>item.id===id?result:item)})));return}setState(current=>({...current,integrationJobs:current.integrationJobs.map(item=>item.id===id?{...item,status:'Geslaagd',attempts:item.attempts+1,completedAt:new Date().toISOString()}:item)}))},
     async createAiAnalysis(projectId:string,input:AiAnalysisInput){if(api){await remote(()=>api.createAiAnalysis(projectId,input),result=>setState(current=>({...current,aiAnalyses:[result,...current.aiAnalyses]})));return}setState(current=>{const project=current.projects.find(item=>item.id===projectId);if(!project)return current;const docs=current.documents.filter(item=>item.projectId===projectId);const sources=docs.length?docs.slice(0,8).map(item=>({documentId:item.id,title:item.title,excerpt:`${item.category} · ${item.status}`})):[{documentId:`project-${project.id}`,title:`Projectdossier ${project.number}`,excerpt:`${project.name}; risico's: ${project.handover.risks.join('; ')||'geen'}`}];const item:AiAnalysis={id:createId(),projectId,...input,answer:`Analyse voor ${project.name}: ${input.question}. Controleer de ${sources.length} geciteerde bron(nen).`,sources,status:'Concept',createdAt:new Date().toISOString()};return{...current,aiAnalyses:[item,...current.aiAnalyses]}})},
     async approveAiAnalysis(id:string,approvedBy:string){if(api){await remote(()=>api.approveAiAnalysis(id,approvedBy),result=>setState(current=>({...current,aiAnalyses:current.aiAnalyses.map(item=>item.id===id?result:item)})));return}setState(current=>({...current,aiAnalyses:current.aiAnalyses.map(item=>item.id===id&&item.sources.length?{...item,status:'Goedgekeurd',approvedBy,approvedAt:new Date().toISOString()}:item)}))},
+    async priceIndexCatalogue(refresh=false){if(api)return api.priceIndexCatalogue(refresh);return demoPriceIndexCatalogue},
     async createProjectContract(projectId:string,input:ProjectContractInput){if(api){await remote(()=>api.createProjectContract(projectId,input),result=>setState(current=>({...current,projectContracts:[...current.projectContracts,result]})));return}const createdAt=new Date().toISOString();const item:ProjectContract={id:createId(),projectId,...input,status:'Actief',approvalStatus:'Concept',versions:[{id:createId(),version:1,changeSummary:'Contractdossier aangemaakt',createdBy:'Demo-gebruiker',createdAt}],createdAt};setState(current=>({...current,projectContracts:[...current.projectContracts,item]}))},
     async updateProjectContract(contractId:string,input:ProjectContractUpdateInput){if(api){await remote(()=>api.updateProjectContract(contractId,input),result=>setState(current=>({...current,projectContracts:current.projectContracts.map(item=>item.id===contractId?result:item)})));return}setState(current=>({...current,projectContracts:current.projectContracts.map(item=>item.id===contractId?{...item,...input,approvalStatus:'Concept',submittedBy:undefined,submittedAt:undefined,approvedBy:undefined,approvedAt:undefined,versions:[...(item.versions??[]),{id:createId(),version:(item.versions?.at(-1)?.version??0)+1,changeSummary:Object.keys(input).join(', ')||'Dossier bijgewerkt',createdBy:'Demo-gebruiker',createdAt:new Date().toISOString()}]}:item)}))},
     async submitProjectContract(contractId:string){if(api){await remote(()=>api.submitProjectContract(contractId),result=>setState(current=>({...current,projectContracts:current.projectContracts.map(item=>item.id===contractId?result:item)})));return}setState(current=>({...current,projectContracts:current.projectContracts.map(item=>item.id===contractId?{...item,approvalStatus:'Ter goedkeuring',submittedBy:'Demo-gebruiker',submittedAt:new Date().toISOString()}:item)}))},
