@@ -57,3 +57,5 @@ jobs:
           ! grep -q '^MemoryDenyWriteExecute=true$' ops/bouwflow-api.service
           grep -q 'chmod 0711 "$release"' ops/deploy-bouwflow
           grep -q 'find "$release/public" -type d' ops/deploy-bouwflow
+          grep -q 'SHARED_ENV="$APP_ROOT/shared/mail.env"' ops/deploy-bouwflow
+          grep -q "M365_MAIL_(TENANT_ID|CLIENT_ID|CLIENT_SECRET|MAILBOX)" ops/deploy-bouwflow
