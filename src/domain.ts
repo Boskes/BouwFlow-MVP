@@ -1,4 +1,31 @@
-export type Page = 'dashboard' | 'dossiers' | 'crm' | 'opportunities' | 'calculations' | 'cost-library' | 'projects' | 'planning' | 'hr' | 'resources' | 'site' | 'changes' | 'financial' | 'control' | 'procurement' | 'cashflow' | 'post-calculation' | 'documents' | 'qhse' | 'subcontractors' | 'consortia' | 'integrations' | 'ai' | 'closeout' | 'client-portal' | 'subcontractor-portal' | 'supplier-portal' | 'company' | 'access' | 'entity-finance' | 'notification-settings'
+export type Page = 'dashboard' | 'dossiers' | 'crm' | 'opportunities' | 'calculations' | 'cost-library' | 'projects' | 'planning' | 'hr' | 'resources' | 'site' | 'changes' | 'financial' | 'control' | 'procurement' | 'cashflow' | 'post-calculation' | 'documents' | 'mailbox' | 'qhse' | 'subcontractors' | 'consortia' | 'integrations' | 'ai' | 'closeout' | 'client-portal' | 'subcontractor-portal' | 'supplier-portal' | 'company' | 'access' | 'entity-finance' | 'notification-settings'
+
+export interface MailboxRecipient { name: string; address: string }
+export interface MailboxMessage {
+  id: string
+  providerMessageId: string
+  internetMessageId?: string
+  conversationId?: string
+  direction: 'Inkomend' | 'Uitgaand'
+  fromName: string
+  fromAddress: string
+  toRecipients: MailboxRecipient[]
+  ccRecipients: MailboxRecipient[]
+  subject: string
+  bodyPreview: string
+  receivedAt?: string
+  sentAt?: string
+  isRead: boolean
+  hasAttachments: boolean
+  webLink?: string
+  organizationId?: string
+  opportunityId?: string
+  projectId?: string
+  synchronizedAt: string
+}
+export interface MailboxOverview { configured: boolean; mailbox: string; lastSynchronizedAt?: string; lastSyncError?: string; messages: MailboxMessage[] }
+export interface MailboxComposeInput { to: string[]; cc?: string[]; subject: string; body: string; organizationId?: string; opportunityId?: string; projectId?: string }
+export interface MailboxLinkInput { organizationId?: string; opportunityId?: string; projectId?: string }
 
 export interface AuditTrailEntry {
   id: string

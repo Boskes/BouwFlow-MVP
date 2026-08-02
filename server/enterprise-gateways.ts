@@ -1,4 +1,5 @@
 import type { AiAnalysis, AiAnalysisInput, DocumentRecipient, DocumentVersion, IntegrationConnection, IntegrationJob, Project, ProjectDocument, Quote } from '../src/domain.js'
+import type { CentralMailService } from './microsoft365-mail.js'
 
 export interface IntegrationGateway {
   test(connection: IntegrationConnection): Promise<void>
@@ -206,6 +207,23 @@ export class DisabledDocumentMailGateway implements DocumentMailGateway {
   async send(): Promise<never> { throw new EnterpriseGatewayError('Geen productie-documentmailgateway geconfigureerd') }
 }
 
+export class Microsoft365QuoteMailGateway implements QuoteMailGateway {
+  constructor(private readonly mail: CentralMailService) {}
+  send(input: QuoteMailInput) {
+    return this.mail.send({ to:[input.recipient], subject:input.quote.content.subject, body:input.quote.content.introduction,
+      attachments:[{ fileName:`${input.quote.number}.pdf`, contentType:'application/pdf', data:input.pdf }], idempotencyKey:input.idempotencyKey })
+  }
+}
+
+export class Microsoft365DocumentMailGateway implements DocumentMailGateway {
+  constructor(private readonly mail: CentralMailService) {}
+  send(input: DocumentMailInput) {
+    return this.mail.send({ to:[input.recipient.email], subject:`${input.document.title} · revisie ${input.version.revisionLabel}`,
+      body:`Beste ${input.recipient.name},\n\nU ontvangt de goedgekeurde revisie ${input.version.revisionLabel} van ${input.document.title}.\n\nMet vriendelijke groet,\nBouwFlow`,
+      attachments:[{ fileName:input.version.fileName, contentType:input.version.mimeType, data:input.data }], idempotencyKey:input.idempotencyKey })
+  }
+}
+
 export const createIntegrationGateway = (production: boolean, environment: NodeJS.ProcessEnv = process.env): IntegrationGateway => {
   const origins = (environment.INTEGRATION_ALLOWED_ORIGINS ?? '').split(',').map(value => value.trim()).filter(Boolean)
   return origins.length ? new HttpIntegrationGateway(origins, environment.INTEGRATION_TOKENS_JSON) : production ? new DisabledIntegrationGateway() : new DevelopmentIntegrationGateway()
@@ -218,14 +236,16 @@ export const createAiGateway = (production: boolean, environment: NodeJS.Process
   return production ? new DisabledAiGateway() : new DevelopmentAiGateway()
 }
 
-export const createQuoteMailGateway = (production: boolean, environment: NodeJS.ProcessEnv = process.env): QuoteMailGateway => {
+export const createQuoteMailGateway = (production: boolean, environment: NodeJS.ProcessEnv = process.env, centralMail?: CentralMailService): QuoteMailGateway => {
+  if (centralMail?.configured) return new Microsoft365QuoteMailGateway(centralMail)
   const url = environment.QUOTE_MAIL_GATEWAY_URL?.trim()
   const token = environment.QUOTE_MAIL_GATEWAY_TOKEN?.trim()
   if (url && token) return new HttpQuoteMailGateway(url, token)
   return production ? new DisabledQuoteMailGateway() : new DevelopmentQuoteMailGateway()
 }
 
-export const createDocumentMailGateway = (production: boolean, environment: NodeJS.ProcessEnv = process.env): DocumentMailGateway => {
+export const createDocumentMailGateway = (production: boolean, environment: NodeJS.ProcessEnv = process.env, centralMail?: CentralMailService): DocumentMailGateway => {
+  if (centralMail?.configured) return new Microsoft365DocumentMailGateway(centralMail)
   const url = environment.DOCUMENT_MAIL_GATEWAY_URL?.trim() || environment.QUOTE_MAIL_GATEWAY_URL?.trim()
   const token = environment.DOCUMENT_MAIL_GATEWAY_TOKEN?.trim() || environment.QUOTE_MAIL_GATEWAY_TOKEN?.trim()
   if (url && token) return new HttpDocumentMailGateway(url, token)

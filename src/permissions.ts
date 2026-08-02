@@ -30,6 +30,7 @@ export const pageRoleAccess: Record<Page, ReadonlySet<string>> = {
   cashflow: roles('Administrator', 'Directie', 'Projectdirecteur', 'Projectmanager', 'Financiële administratie'),
   'post-calculation': roles('Administrator', 'Directie', 'Calculator', 'Projectdirecteur', 'Projectmanager', 'Financiële administratie'),
   documents: roles(...operations, 'Calculator', 'Ploegbaas', 'Preventieadviseur', 'Kwaliteitsverantwoordelijke', 'Financiële administratie'),
+  mailbox: roles('Administrator', 'Directie', 'Commercieel medewerker', 'Tender manager', 'Calculator', 'Projectdirecteur', 'Projectmanager', 'Werkvoorbereider', 'Aankoper', 'Financiële administratie'),
   qhse: roles('Administrator', 'Directie', 'Projectdirecteur', 'Projectmanager', 'Werkvoorbereider', 'Werfleider', 'Ploegbaas', 'Arbeider', 'Preventieadviseur', 'Kwaliteitsverantwoordelijke'),
   subcontractors: roles('Administrator', 'Directie', 'Projectdirecteur', 'Projectmanager', 'Werkvoorbereider', 'Werfleider', 'Aankoper', 'Preventieadviseur'),
   consortia: roles('Administrator', 'Directie', 'Projectdirecteur', 'Financiële administratie'),
