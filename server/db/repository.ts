@@ -4161,6 +4161,12 @@ export class BouwFlowRepository {
     return (await this.pool.query<MailboxMessageRow>('SELECT * FROM mailbox_messages WHERE tenant_id=$1 AND id=$2',[context.tenantId,id])).rows.map(mapMailboxMessage)[0]
   }
 
+  async mailboxMessage(context:RequestContext,id:string) {
+    const result=await this.pool.query<MailboxMessageRow>('SELECT * FROM mailbox_messages WHERE tenant_id=$1 AND id=$2',[context.tenantId,id])
+    if(!result.rowCount)throw new RepositoryError('E-mailbericht niet gevonden',404)
+    return mapMailboxMessage(result.rows[0])
+  }
+
   async linkMailboxMessage(context:RequestContext,id:string,input:MailboxLinkInput) {
     const result=await this.pool.query<MailboxMessageRow>('UPDATE mailbox_messages SET organization_id=$3,opportunity_id=$4,project_id=$5 WHERE tenant_id=$1 AND id=$2 RETURNING *',[context.tenantId,id,input.organizationId??null,input.opportunityId??null,input.projectId??null])
     if(!result.rowCount)throw new RepositoryError('E-mailbericht niet gevonden',404)

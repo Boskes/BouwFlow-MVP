@@ -27,6 +27,17 @@ describe('centrale Microsoft 365-mailbox',()=>{
     expect(messages).toEqual(expect.arrayContaining([expect.objectContaining({providerMessageId:'in-1',direction:'Inkomend'}),expect.objectContaining({providerMessageId:'out-1',direction:'Uitgaand',correlationKey:'mail-1'})]))
   })
 
+  it('beantwoordt een inkomend bericht binnen de bestaande Microsoft 365-conversatie',async()=>{
+    const fetchMock=vi.fn(async(input:string|URL|Request)=>String(input).includes('/token')
+      ?new Response(JSON.stringify({access_token:'token',expires_in:3600}),{status:200,headers:{'content-type':'application/json'}})
+      :new Response('',{status:202}))
+    const fetcher=fetchMock as unknown as typeof fetch
+    const service=new Microsoft365MailService('Bouw.Flow@bosis.be',new MicrosoftGraphTokenProvider('tenant','client','secret',fetcher),fetcher)
+    await service.reply('graph/message+1','Bedankt, we nemen dit mee in de projectopvolging.')
+    expect(fetchMock.mock.calls[1][0]).toBe('https://graph.microsoft.com/v1.0/users/Bouw.Flow%40bosis.be/messages/graph%2Fmessage%2B1/reply')
+    expect(JSON.parse(String(fetchMock.mock.calls[1][1]?.body))).toEqual({comment:'Bedankt, we nemen dit mee in de projectopvolging.'})
+  })
+
   it('vereist een volledige configuratie en ondersteunt de centrale env-namen',()=>{
     expect(createMicrosoft365MailService({})).toBeUndefined()
     expect(()=>createMicrosoft365MailService({M365_MAIL_MAILBOX:'x'} as never)).not.toThrow()
