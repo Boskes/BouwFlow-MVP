@@ -1,6 +1,6 @@
 import { Fragment, Suspense, lazy, type CSSProperties, type DragEvent, type FormEvent, type PointerEvent as ReactPointerEvent, type WheelEvent as ReactWheelEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { bimProductionTestModels, type BimProductionTestModel } from "./bim-test-models";
-import { FAMILY_HOME_CALCULATION_NUMBER, FAMILY_HOME_MODEL_NAME, FAMILY_HOME_MODEL_VERSION, familyHomeBimElements, familyHomeBimPhases, type FamilyHomeBimElement } from "./family-home-bim";
+import { FAMILY_HOME_CALCULATION_NUMBER, FAMILY_HOME_MODEL_NAME, FAMILY_HOME_MODEL_VERSION, familyHomeBimElements, familyHomeBimPhases, type FamilyHomeBimElement, type FamilyHomeBimGeometry } from "./family-home-bim";
 import {
   Activity,
   AlertTriangle,
@@ -83,6 +83,7 @@ import type { DossierEmailContext } from './DossierEmailTab'
 const FormulaBuilderDialog = lazy(() => import('./FormulaBuilderDialog'))
 const BoqItemAdvancedDialog = lazy(() => import('./FormulaBuilderDialog').then(module => ({ default: module.BoqItemAdvancedDialog })))
 const BimIfcViewer = lazy(() => import('./BimIfcViewer'))
+const FamilyHomeBimViewer = lazy(() => import('./FamilyHomeBimViewer'))
 const BimProgressDialog = lazy(() => import('./BimProgressDialog'))
 const MailboxPage = lazy(() => import('./MailboxPage'))
 const DossierEmailTab = lazy(() => import('./DossierEmailTab'))
@@ -4234,13 +4235,14 @@ type BimModelElement = {
   plannedEnd?: string;
   completedProgressPct?: number;
   verified?: boolean;
+  geometry?: FamilyHomeBimGeometry;
 };
 
 const familyHomeCalculationElements = familyHomeBimElements.map((element:FamilyHomeBimElement):BimModelElement=>({
   id:element.id, ifcType:element.ifcType, label:element.label, category:element.category, storey:element.storey,
   quantity:element.quantity, unit:element.unit, unitCost:element.unitCost, x:element.x, y:element.y, width:element.width, height:element.height,
   shape:element.shape, phaseId:element.phaseId, workPackageCode:element.workPackageCode, plannedStart:element.plannedStart, plannedEnd:element.plannedEnd,
-  completedProgressPct:element.completedProgressPct, verified:element.verified,
+  completedProgressPct:element.completedProgressPct, verified:element.verified, geometry:element.geometry,
 }));
 
 const bimDemoElements: BimModelElement[] = [
@@ -4450,7 +4452,7 @@ function BimCalculationWorkspace({ calculation, actions, onClose, onAdded }: { c
               onProgress={(progress,message)=>{setIfcProgress(progress);setNotice(message)}}
               onError={message=>{setIsImporting(false);setNotice(message);setModelFormat("IFC · laden mislukt")}}
               onModelLoaded={report=>{setIfcElements(report.elements);setImportCount(report.elementCount);setModelFormat(`${report.schema} · WebIFC · ${number(report.triangleCount)} driehoeken`);setIsImporting(false);setNotice(`${report.elementCount} echte IFC-objecten zijn grafisch en calculatief gekoppeld.`)}}
-            /></Suspense> : visibleElements.map(element=><button
+            /></Suspense> : isFamilyHome ? <Suspense fallback={<div className="bim-ifc-loading"><span></span><strong>Woningmodel laden…</strong></div>}><FamilyHomeBimViewer elements={visibleElements} selectedIds={selectedIds} dimension={dimension} elementState={element=>timelineState(element as BimModelElement)} onToggle={(id,additive)=>{const element=visibleElements.find(item=>item.id===id);if(element)toggleElement(element,additive)}}/></Suspense> : visibleElements.map(element=><button
               type="button"
               key={element.id}
               aria-label={`${element.label} selecteren`}

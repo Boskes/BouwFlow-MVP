@@ -17,6 +17,26 @@ describe('gezinswoning BIM 3D/4D/5D',()=>{
     expect(familyHomeBimPhases).toHaveLength(8)
     expect(familyHomeBimElements.every(element=>element.x>=0&&element.y>=0&&element.width>0&&element.height>0)).toBe(true)
     expect(familyHomeBimElements.every(element=>element.plannedStart<=element.plannedEnd&&element.unitCost>0)).toBe(true)
+    expect(familyHomeBimElements.every(element=>element.geometry.size.every(size=>size>0)&&element.geometry.position.every(Number.isFinite))).toBe(true)
+  })
+
+  it('vormt geometrisch één herkenbare tweelaagse woning met zadeldak',()=>{
+    const walls=familyHomeBimElements.filter(element=>element.ifcType==='IfcWall')
+    const roof=familyHomeBimElements.filter(element=>element.shape==='roof')
+    const windows=familyHomeBimElements.filter(element=>element.shape==='window')
+    const doors=familyHomeBimElements.filter(element=>element.shape==='door')
+    const floors=familyHomeBimElements.filter(element=>element.ifcType==='IfcSlab')
+
+    expect(walls.some(element=>Math.abs(element.geometry.position[0])>=5)).toBe(true)
+    expect(walls.some(element=>Math.abs(element.geometry.position[2])>=4)).toBe(true)
+    expect(floors.some(element=>element.geometry.position[1]<1)).toBe(true)
+    expect(floors.some(element=>element.geometry.position[1]>3)).toBe(true)
+    expect(windows).toHaveLength(14)
+    expect(windows.some(element=>element.geometry.position[1]>4)).toBe(true)
+    expect(doors.some(element=>element.geometry.position[2]<-4)).toBe(true)
+    expect(roof).toHaveLength(12)
+    expect(roof.some(element=>(element.geometry.rotation?.[2]??0)>.5)).toBe(true)
+    expect(roof.some(element=>(element.geometry.rotation?.[2]??0)<-.5)).toBe(true)
   })
 
   it('koppelt calculatie, project en vordering aan hetzelfde BIM-dossier',()=>{

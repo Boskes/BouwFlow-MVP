@@ -3,6 +3,12 @@ import type { Calculation, ProgressStatement, Project } from './domain.js'
 export type FamilyHomeBimUnit = 'm²' | 'm³' | 'm' | 'st'
 export type FamilyHomeBimShape = 'plate' | 'wall' | 'column' | 'window' | 'door' | 'roof'
 
+export interface FamilyHomeBimGeometry {
+  position: [number, number, number]
+  size: [number, number, number]
+  rotation?: [number, number, number]
+}
+
 export interface FamilyHomeBimPhase {
   id: string
   sequence: number
@@ -30,6 +36,7 @@ export interface FamilyHomeBimElement {
   width: number
   height: number
   shape: FamilyHomeBimShape
+  geometry: FamilyHomeBimGeometry
   phaseId: string
   workPackageCode: string
   plannedStart: string
@@ -55,7 +62,7 @@ export const familyHomeBimPhases: FamilyHomeBimPhase[] = [
   { id:'external', sequence:8, label:'Buitenaanleg en oplevering', workPackageCode:'08', startDate:'2027-04-19', endDate:'2027-05-28', budget:21_000, progressPct:0, color:'#729267' },
 ]
 
-type SeriesInput = Omit<FamilyHomeBimElement, 'id' | 'code' | 'label' | 'x' | 'y' | 'plannedStart' | 'plannedEnd' | 'completedProgressPct'> & {
+type SeriesInput = Omit<FamilyHomeBimElement, 'id' | 'code' | 'label' | 'x' | 'y' | 'geometry' | 'plannedStart' | 'plannedEnd' | 'completedProgressPct'> & {
   prefix: string
   count: number
   labelPrefix: string
@@ -65,6 +72,56 @@ type SeriesInput = Omit<FamilyHomeBimElement, 'id' | 'code' | 'label' | 'x' | 'y
   stepX: number
   stepY: number
   quantityStep?: number
+}
+
+const panelPosition = (index:number, frontCount:number, sideCount:number, y:number):FamilyHomeBimGeometry => {
+  if (index < frontCount) return { position:[-5 + (index + .5) * (10 / frontCount), y, -4.05], size:[10 / frontCount, 2.7, .24] }
+  if (index < frontCount * 2) { const offset=index-frontCount; return { position:[-5 + (offset + .5) * (10 / frontCount), y, 4.05], size:[10 / frontCount, 2.7, .24] } }
+  if (index < frontCount * 2 + sideCount) { const offset=index-frontCount*2; return { position:[-5.05, y, -4 + (offset + .5) * (8 / sideCount)], size:[.24, 2.7, 8 / sideCount] } }
+  const offset=index-frontCount*2-sideCount
+  return { position:[5.05, y, -4 + (offset + .5) * (8 / sideCount)], size:[.24, 2.7, 8 / sideCount] }
+}
+
+export const familyHomeElementGeometry = (prefix:string, index:number):FamilyHomeBimGeometry => {
+  if (prefix==='grd') {
+    const column=index%4, row=Math.floor(index/4)
+    return { position:[-6 + column*4, -.45, -4 + row*4], size:[3.95,.18,3.95] }
+  }
+  if (prefix==='fun') {
+    if(index<5)return {position:[-4+(index*2),-.12,-3.85],size:[2.1,.65,.65]}
+    if(index<10)return {position:[-4+((index-5)*2),-.12,3.85],size:[2.1,.65,.65]}
+    if(index<13)return {position:[-4.85,-.12,-2.6+((index-10)*2.6)],size:[.65,.65,2.75]}
+    return {position:[4.85,-.12,-2.6+((index-13)*2.6)],size:[.65,.65,2.75]}
+  }
+  if (prefix==='vlr'||prefix==='vdp') {
+    const column=index%4, row=Math.floor(index/4)
+    return { position:[-3.75+column*2.5,prefix==='vlr'?.28:3.12,-2.67+row*2.67],size:[2.46,.28,2.63] }
+  }
+  if (prefix==='buw') return panelPosition(index,7,5,1.75)
+  if (prefix==='afw') return panelPosition(index,6,3,4.52)
+  if (prefix==='biw') {
+    if(index<6)return {position:[-4.15+index*1.65,1.72,.55],size:[1.6,2.6,.14]}
+    if(index<12)return {position:[-4.15+(index-6)*1.65,1.72,2.35],size:[1.6,2.6,.14]}
+    return {position:[index<15?-1.65:1.65,1.72,-2.55+((index%3)*2.55)],size:[.14,2.6,2.45]}
+  }
+  if (prefix==='dak') {
+    const left=index<6, offset=index%6
+    return { position:[left?-2.5:2.5,6.02,-3.75+offset*1.5],size:[5.65,.22,1.46],rotation:[0,0,left?.52:-.52] }
+  }
+  if (prefix==='ram') {
+    const front=index<8, upper=index%8>=4, slot=front?index%4:(index-8)%3
+    const count=front?4:3
+    return { position:[-4+(slot+.5)*(8/count),upper?4.55:1.82,front?-4.2:4.2],size:[front?1.35:1.55,1.3,.14] }
+  }
+  if (prefix==='deu') {
+    if(index===0)return {position:[2.7,1.25,-4.22],size:[1.15,2.25,.16]}
+    return {position:[index<3?-1.65:1.65,1.25,-1.8+((index%2)*3.6)],size:[.16,2.15,1.0]}
+  }
+  if (prefix==='mep') {
+    const vertical=index%5===0
+    return {position:[-3.6+(index%5)*1.8,.9+Math.floor(index/5)*1.25,-2.7+(index%4)*1.8],size:vertical?[.13,2.15,.13]:[1.55,.13,.13]}
+  }
+  return {position:[0,1,0],size:[1,1,1]}
 }
 
 const elementSeries = (input: SeriesInput): FamilyHomeBimElement[] => {
@@ -84,6 +141,7 @@ const elementSeries = (input: SeriesInput): FamilyHomeBimElement[] => {
     width:input.width,
     height:input.height,
     shape:input.shape,
+    geometry:familyHomeElementGeometry(input.prefix,index),
     phaseId:input.phaseId,
     workPackageCode:input.workPackageCode,
     plannedStart:phase.startDate,
