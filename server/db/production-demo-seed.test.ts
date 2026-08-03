@@ -58,25 +58,25 @@ describe('production demo seed', () => {
       pool.query<{number:string;items:string}>("SELECT c.number,count(i.id)::text AS items FROM calculations c JOIN boq_items i ON i.tenant_id=c.tenant_id AND i.calculation_id=c.id WHERE c.tenant_id=$1 AND c.number='CAL-WONING-BIM-001' GROUP BY c.number",[BOUWFLOW_DEMO_TENANT_ID]),
     ])
 
-    expect(calculations.rows[0].count).toBe('3')
+    expect(calculations.rows[0].count).toBe('4')
     expect(calculationVersions.rows).toEqual([
       expect.objectContaining({version:1,label:'Tenderbasis',snapshot:expect.objectContaining({items:expect.any(Array)})}),
       expect.objectContaining({version:2,label:'Inschrijvingsversie',snapshot:expect.objectContaining({items:expect.any(Array)})}),
     ])
     expect(calculationVersions.rows[0].snapshot.items.length).toBe(1999)
     expect(calculationVersions.rows[1].snapshot.items.length).toBe(1999)
-    expect(chapters.rows[0].count).toBe('188')
-    expect(items.rows[0].count).toBe('2023')
-    expect(projects.rows[0].count).toBe('3')
+    expect(chapters.rows[0].count).toBe('205')
+    expect(items.rows[0].count).toBe('2079')
+    expect(projects.rows[0].count).toBe('4')
     expect(reports.rows[0].count).toBe('3')
     expect(costs.rows[0].count).toBe('7')
     expect(changes.rows[0].count).toBe('2')
     expect(forecasts.rows[0].count).toBe('2')
-    expect(pipeline.rows[0].count).toBe('6')
+    expect(pipeline.rows[0].count).toBe('7')
     expect(users.rows[0].count).toBe('10')
     expect(documents.rows[0].count).toBe('5')
     expect(quotes.rows[0].count).toBe('1')
-    expect(statements.rows[0].count).toBe('3')
+    expect(statements.rows[0].count).toBe('4')
     expect(invoices.rows[0].count).toBe('1')
     expect(orders.rows[0].count).toBe('1')
     expect(certificates.rows[0].count).toBe('2')

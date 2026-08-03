@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto'
 import type { PoolClient } from 'pg'
 import { defaultWorkflowDefinitions } from '../../src/administration.js'
 import { FAMILY_HOME_MODEL_ID, buildFamilyHomeBimCalculation, buildFamilyHomeBimProgressStatement, buildFamilyHomeBimProject } from '../../src/family-home-bim.js'
+import { BOSMANS_TAVERNIERS_MODEL_ID, buildBosmansTaverniersCalculation, buildBosmansTaverniersProgressStatement, buildBosmansTaverniersProject } from '../../src/bosmans-taverniers-bim.js'
 import type { ObjectStorage } from '../storage.js'
 
 const DEMO_LEGAL_ENTITY_ID = '20000000-0000-4000-8200-000000000001'
@@ -528,24 +529,89 @@ async function seedFamilyHomeBimDemo(client: PoolClient, tenantId: string) {
   return !existingProject.rowCount && Boolean(inserted.rowCount)
 }
 
+async function seedBosmansTaverniersBimProject(client: PoolClient, tenantId: string) {
+  const organizationId=id('bosmans-taverniers','organization')
+  const opportunityId=id('bosmans-taverniers','opportunity')
+  const calculationId=id('bosmans-taverniers','calculation')
+  const projectId=id('bosmans-taverniers','project')
+  const statementId=id('bosmans-taverniers','progress-concept')
+  const existingProject=await client.query('SELECT id FROM projects WHERE tenant_id=$1 AND id=$2',[tenantId,projectId])
+  const calculation=buildBosmansTaverniersCalculation()
+  const project=buildBosmansTaverniersProject()
+  const statement=buildBosmansTaverniersProgressStatement()
+  const workPackageIds=new Map(project.workPackages.map(item=>[item.code,id('bosmans-taverniers-work-package',item.code)]))
+  const chapterIds=new Map(calculation.chapters.map(item=>[item.code,id('bosmans-taverniers-chapter',item.code)]))
+  const activityIds=new Map(project.planning.activities.map(item=>[item.id,id('bosmans-taverniers-activity',item.id)]))
+  const planning={...project.planning,activities:project.planning.activities.map(activity=>({...activity,id:activityIds.get(activity.id),workPackageId:project.workPackages.find(item=>item.id===activity.workPackageId)?.code?workPackageIds.get(project.workPackages.find(item=>item.id===activity.workPackageId)!.code):undefined,predecessorIds:activity.predecessorIds.map(value=>activityIds.get(value)!).filter(Boolean),dependencies:activity.dependencies?.map(dependency=>({...dependency,predecessorId:activityIds.get(dependency.predecessorId)!})).filter(dependency=>Boolean(dependency.predecessorId))}))}
+  const workPackages=project.workPackages.map(item=>({...item,id:workPackageIds.get(item.code)!}))
+  await client.query(
+    `INSERT INTO organizations (tenant_id,id,name,type,contact_name,email,vat_number,address_line,postal_code,city,country_code,peppol_endpoint_id,peppol_scheme_id,roles,contacts)
+     VALUES ($1,$2,'Familie Bosmans-Taverniers','Privaat','Jurgen Bosmans','jurgen.bosmans@bosis.be','','','3550','Heusden-Zolder','BE','','0208','["Klant","Opdrachtgever"]',$3)
+     ON CONFLICT (tenant_id,id) DO UPDATE SET name=EXCLUDED.name,contact_name=EXCLUDED.contact_name,email=EXCLUDED.email,contacts=EXCLUDED.contacts`,
+    [tenantId,organizationId,JSON.stringify([{id:id('bosmans-taverniers','contact'),name:'Jurgen Bosmans',role:'Bouwheer',email:'jurgen.bosmans@bosis.be',phone:'+32 478 73 01 51',primary:true}])],
+  )
+  await client.query(
+    `INSERT INTO opportunities (tenant_id,id,project_number,title,organization_id,legal_entity_id,branch_id,location,deadline,estimated_value,probability,stage,recognition,tender)
+     VALUES ($1,$2,'OPP-BT-BA-001','Woning Bosmans-Taverniers · DWG + meetstaat',$3,$4,$5,'Bolderberg, Heusden-Zolder','2026-08-31',313890.6276,100,'Gewonnen','Private woningbouw',$6)
+     ON CONFLICT (tenant_id,id) DO UPDATE SET title=EXCLUDED.title,estimated_value=EXCLUDED.estimated_value,tender=EXCLUDED.tender`,
+    [tenantId,opportunityId,organizationId,DEMO_LEGAL_ENTITY_ID,DEMO_BRANCH_ID,JSON.stringify({status:'Gepland',deadline:'2026-08-31',recognition:'Private woningbouw',notes:'Echt project gekoppeld aan BosmansTaverniers.DWG en Bosmans-Taverniers MS BA.xlsx.',documents:[],questions:[]})],
+  )
+  await client.query(
+    `INSERT INTO calculations (tenant_id,id,number,opportunity_id,status,overhead_pct,risk_pct,margin_pct,site_overhead_pct,escalation_pct,discount_pct,rounding_step,updated_at)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+     ON CONFLICT (tenant_id,id) DO UPDATE SET number=EXCLUDED.number,status=EXCLUDED.status,updated_at=EXCLUDED.updated_at`,
+    [tenantId,calculationId,calculation.number,opportunityId,calculation.status,calculation.overheadPct,calculation.riskPct,calculation.marginPct,calculation.siteOverheadPct,calculation.escalationPct,calculation.discountPct,calculation.roundingStep,calculation.updatedAt],
+  )
+  for(const chapter of calculation.chapters) await client.query(
+    `INSERT INTO boq_chapters (tenant_id,id,calculation_id,code,name,sort_order) VALUES ($1,$2,$3,$4,$5,$6)
+     ON CONFLICT (tenant_id,id) DO UPDATE SET code=EXCLUDED.code,name=EXCLUDED.name,sort_order=EXCLUDED.sort_order`,
+    [tenantId,chapterIds.get(chapter.code),calculationId,chapter.code,chapter.name,chapter.sortOrder],
+  )
+  for(const item of calculation.items) await client.query(
+    `INSERT INTO boq_items (tenant_id,id,calculation_id,chapter_id,code,description,quantity,unit,labor,material,equipment,subcontracting,cost_applications,advanced,sort_order)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'{}',$13,$14)
+     ON CONFLICT (tenant_id,id) DO UPDATE SET chapter_id=EXCLUDED.chapter_id,code=EXCLUDED.code,description=EXCLUDED.description,quantity=EXCLUDED.quantity,unit=EXCLUDED.unit,labor=EXCLUDED.labor,material=EXCLUDED.material,equipment=EXCLUDED.equipment,subcontracting=EXCLUDED.subcontracting,advanced=EXCLUDED.advanced,sort_order=EXCLUDED.sort_order`,
+    [tenantId,id('bosmans-taverniers-boq',item.id),calculationId,item.chapterId?chapterIds.get(calculation.chapters.find(chapter=>chapter.id===item.chapterId)?.code??''):null,item.code,item.description,item.quantity,item.unit,item.labor,item.material,item.equipment,item.subcontracting,JSON.stringify({postType:item.postType,quantityType:item.quantityType,wastePct:item.wastePct??0,itemRiskPct:item.itemRiskPct??0,markupPct:item.markupPct??0,notes:item.notes??'',variables:[],formulas:{},priceAdjustments:item.priceAdjustments??[]}),item.sortOrder??0],
+  )
+  const inserted=await client.query(
+    `INSERT INTO projects (tenant_id,id,number,name,organization_id,legal_entity_id,branch_id,source_calculation_id,contract_value,cost_budget,margin_pct,progress,status,handover,work_packages,planning)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
+     ON CONFLICT (tenant_id,id) DO UPDATE SET name=EXCLUDED.name,contract_value=EXCLUDED.contract_value,cost_budget=EXCLUDED.cost_budget,handover=EXCLUDED.handover,planning=EXCLUDED.planning,work_packages=EXCLUDED.work_packages,progress=EXCLUDED.progress
+     RETURNING id`,
+    [tenantId,projectId,project.number,project.name,organizationId,DEMO_LEGAL_ENTITY_ID,DEMO_BRANCH_ID,calculationId,project.contractValue,project.costBudget,project.marginPct,project.progress,project.status,JSON.stringify(project.handover),JSON.stringify(workPackages),JSON.stringify(planning)],
+  )
+  const progressLines=statement.lines.map(line=>({...line,workPackageId:workPackageIds.get(line.workPackageCode)!,...(line.bimEvidence?{bimEvidence:{...line.bimEvidence,modelId:BOSMANS_TAVERNIERS_MODEL_ID}}:{})}))
+  const details={valuationDate:statement.valuationDate,dueDate:statement.dueDate,certificateReference:statement.certificateReference,preparedBy:statement.preparedBy,revisionFormula:statement.revisionFormula,advancePaymentAmount:statement.advancePaymentAmount,advanceRecoveryAmount:statement.advanceRecoveryAmount,otherDeductionsAmount:statement.otherDeductionsAmount,evidenceDocumentIds:statement.evidenceDocumentIds,qualityChecklist:statement.qualityChecklist}
+  await client.query(
+    `INSERT INTO progress_statements (tenant_id,id,number,project_id,period_start,period_end,lines,change_order_ids,work_amount,change_order_amount,price_revision_amount,gross_amount,retention_pct,retention_amount,net_amount,status,notes,created_at,details)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,'[]',0,0,0,0,$8,0,0,$9,$10,$11,$12)
+     ON CONFLICT (tenant_id,id) DO UPDATE SET lines=EXCLUDED.lines,details=EXCLUDED.details,notes=EXCLUDED.notes`,
+    [tenantId,statementId,statement.number,projectId,statement.periodStart,statement.periodEnd,JSON.stringify(progressLines),statement.retentionPct,statement.status,statement.notes,statement.createdAt,JSON.stringify(details)],
+  )
+  await client.query(`INSERT INTO user_project_access (tenant_id,user_id,project_id) SELECT tenant_id,id,$2 FROM users WHERE tenant_id=$1 AND all_projects=false ON CONFLICT DO NOTHING`,[tenantId,projectId])
+  return !existingProject.rowCount&&Boolean(inserted.rowCount)
+}
+
 export async function seedFullProductionDemo(client: PoolClient, tenantId: string, storage?: ObjectStorage) {
   const project = await client.query('SELECT id FROM projects WHERE tenant_id=$1 AND id=$2', [tenantId, DEMO_PROJECT_ID])
   if (!project.rowCount) return false
   const marker = await client.query('SELECT id FROM users WHERE tenant_id=$1 AND id=$2', [tenantId, userIds.tenderOwner])
   if (marker.rowCount) {
     const familyHomeCreated = await seedFamilyHomeBimDemo(client, tenantId)
+    const bosmansTaverniersCreated = await seedBosmansTaverniersBimProject(client, tenantId)
     const progressUpgrade = await client.query<{ professional: boolean }>(
       `SELECT COALESCE(details->>'certificateReference','')='CERT-OWV-2026-10-02' AS professional
          FROM progress_statements WHERE tenant_id=$1 AND id=$2`,
       [tenantId, id('progress-statement', 'oosterweel-2026-10')],
     )
-    if (progressUpgrade.rows[0]?.professional) return familyHomeCreated
+    if (progressUpgrade.rows[0]?.professional) return familyHomeCreated || bosmansTaverniersCreated
     await seedCommercialAndFinancialFlow(client, tenantId)
     return true
   }
 
   await seedUsers(client, tenantId)
   await seedFamilyHomeBimDemo(client, tenantId)
+  await seedBosmansTaverniersBimProject(client, tenantId)
   await client.query(
     `UPDATE organizations
         SET contact_name='Marie De Clerck',

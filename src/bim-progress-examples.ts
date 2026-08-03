@@ -1,5 +1,6 @@
 import type { BimProgressEvidence } from './domain'
 import { FAMILY_HOME_MODEL_ID, FAMILY_HOME_MODEL_NAME, FAMILY_HOME_MODEL_VERSION, familyHomeBimElements, familyHomeBimPhases, type FamilyHomeBimGeometry } from './family-home-bim'
+import { BOSMANS_TAVERNIERS_MODEL_ID, BOSMANS_TAVERNIERS_MODEL_NAME, BOSMANS_TAVERNIERS_MODEL_VERSION, bosmansTaverniersBimElements, bosmansTaverniersBimPhases } from './bosmans-taverniers-bim'
 
 export type BimProgressElement = {
   id:string; code:string; label:string; category:string; storey:string; quantity:number; unit:BimProgressEvidence['unit']; plannedProgressPct:number; completedProgressPct:number; verified:boolean;
@@ -19,6 +20,12 @@ const series = (prefix:string, count:number, category:string, storeys:string[], 
   }))
 
 export const bimProgressExamples:BimProgressExample[] = [
+  {
+    id:BOSMANS_TAVERNIERS_MODEL_ID, label:'Woning Bosmans-Taverniers · DWG + meetstaat', projectType:'Echt project · Bolderberg · € 313.890,63 excl. btw',
+    description:'BIM-reconstructie uit de AutoCAD 2018-DWG met 88 echte wandsegmenten en 3 kolommen. De 5D-waarden komen uit de Excel-meetstaat; de 4D-data is een voorstelplanning die nog als baseline moet worden bevestigd.',
+    modelName:BOSMANS_TAVERNIERS_MODEL_NAME, modelVersion:BOSMANS_TAVERNIERS_MODEL_VERSION, discipline:'Multidisciplinair', coordinationStatus:'DWG + meetstaat gekoppeld · broncontrole actief · 1 meetstaatafwijking',
+    elements:bosmansTaverniersBimElements.map(element=>({id:element.id,code:element.code,label:element.label,category:element.category,storey:element.storey,quantity:element.quantity,unit:element.unit,plannedProgressPct:bosmansTaverniersBimPhases.find(phase=>phase.id===element.phaseId)?.progressPct??0,completedProgressPct:element.completedProgressPct,verified:element.verified,phase:bosmansTaverniersBimPhases.find(phase=>phase.id===element.phaseId)?.label??element.phaseId,phaseId:element.phaseId,plannedStart:element.plannedStart,plannedEnd:element.plannedEnd,costValue:Number((element.quantity*element.unitCost).toFixed(2)),x:element.x,y:element.y,width:element.width,height:element.height,shape:element.shape,geometry:element.geometry})),
+  },
   {
     id:FAMILY_HOME_MODEL_ID, label:'Gezinswoning · volledig BIM', projectType:'Private woningbouw · € 535.000',
     description:'Volledig LOD350-woningmodel voor een vrijstaande gezinswoning. Alle objecten zijn gekoppeld aan uitvoeringsfasen, werkpakketten, calculatiebedragen en gecertificeerde voortgang.',

@@ -43,6 +43,7 @@ export interface FamilyHomeBimElement {
   plannedEnd: string
   completedProgressPct: number
   verified: boolean
+  warning?: string
 }
 
 export const FAMILY_HOME_MODEL_ID = 'family-home-bim-3d4d5d'
