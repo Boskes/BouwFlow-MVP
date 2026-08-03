@@ -2,9 +2,9 @@ import { describe, expect, it } from 'vitest'
 import { bimProgressExamples } from './bim-progress-examples'
 
 describe('professionele BIM-vorderingsvoorbeelden',()=>{
-  it('bevat zes uitgebreide en unieke projectscenario’s',()=>{
-    expect(bimProgressExamples).toHaveLength(6)
-    expect(new Set(bimProgressExamples.map(item=>item.id)).size).toBe(6)
+  it('bevat zeven uitgebreide en unieke projectscenario’s',()=>{
+    expect(bimProgressExamples).toHaveLength(7)
+    expect(new Set(bimProgressExamples.map(item=>item.id)).size).toBe(7)
     expect(bimProgressExamples.every(item=>item.elements.length>=80)).toBe(true)
   })
 

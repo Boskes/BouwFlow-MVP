@@ -19,6 +19,7 @@ import { parseBoqFileLocally } from './boq-import'
 import { searchBelgianAddressesOnline } from './belgian-addresses'
 import { buildOosterweelClass8DemoCalculation } from './class8-demo-calculation'
 import { buildFamilyHomeBimCalculation, buildFamilyHomeBimProgressStatement, buildFamilyHomeBimProject } from './family-home-bim'
+import { buildBosmansTaverniersCalculation, buildBosmansTaverniersProgressStatement, buildBosmansTaverniersProject } from './bosmans-taverniers-bim'
 import { getBimProductionTestModel } from './bim-test-models'
 import { buildDailyReportEvidence, buildMeetstaatEvidence } from './progress-measurements'
 import { calculateContractPriceRevision, demoPriceIndexCatalogue } from './price-revision'
@@ -26,7 +27,7 @@ import { CHECKINATWORK_THRESHOLD, maskCheckinatworkIdentifier } from './checkina
 
 const STORAGE_KEY = 'bouwflow.mvp.v1'
 const DEMO_DATA_VERSION_KEY = 'bouwflow.demo.version'
-const DEMO_DATA_VERSION = '2026-08-enterprise-workspace-v15-checkinatwork'
+const DEMO_DATA_VERSION = '2026-08-enterprise-workspace-v16-bosmans-taverniers-bim'
 const FORCE_DEMO_MODE = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('mode') === 'demo'
 const API_URL = FORCE_DEMO_MODE ? undefined : import.meta.env.VITE_API_URL?.trim() as string | undefined
 
@@ -132,6 +133,7 @@ const demoProjects: Project[] = [
   {
     id:'project-student',number:'PRJ-2026-021',name:'Studententoren Leuven – buitenaanleg',organizationId:'org-leuven',legalEntityId:'entity-bouwflow',branchId:'branch-gent',sourceCalculationId:'calc-student',contractValue:17_600_000,costBudget:16_380_000,marginPct:6.9,progress:10,status:'Opstart',handover:acceptedHandover('Sofie Janssens','2026-07-06','2027-08-27'),workPackages:[{id:'wp-st-1',code:'1',name:'Riolerings- en grondwerken',budget:6_200_000,plannedHours:34_000,status:'Klaar voor planning'},{id:'wp-st-2',code:'2',name:'Buitenverhardingen',budget:6_900_000,plannedHours:36_000,status:'Klaar voor planning'},{id:'wp-st-3',code:'3',name:'Landschapsaanleg',budget:3_280_000,plannedHours:19_000,status:'Klaar voor planning'}],planning:{status:'Baseline',baselineVersion:1,updatedAt:'2026-07-15T13:00:00.000Z',activities:[demoActivity('act-st-1','wp-st-1','Bouwput en riolering','2026-07-06','2026-12-18',22),demoActivity('act-st-2','wp-st-2','Buitenverhardingen','2027-01-04','2027-05-28',0,['act-st-1']),demoActivity('act-st-3','wp-st-3','Groenaanleg en oplevering','2027-05-31','2027-08-27',0,['act-st-2'])]}},
   buildFamilyHomeBimProject(),
+  buildBosmansTaverniersProject(),
 ]
 
 const demoTenderChecklist = (completed: number, actor = 'Tenderteam') => [
@@ -300,6 +302,7 @@ const seed: BouwFlowState = {
     { id: 'org-drainpro', name: 'DrainPro BV', type: 'Privaat', contactName: 'Kim Hermans', email: 'kim.hermans@drainpro.example', vatNumber: 'BE0723456198', addressLine: 'Rioleringstraat 12', postalCode: '3550', city: 'Heusden-Zolder', countryCode: 'BE', peppolEndpointId: '0723456198', peppolSchemeId: '0208', roles: ['Leverancier'], contacts: [{ id:'contact-drainpro-kim',firstName:'Kim',lastName:'Hermans',jobTitle:'Accountmanager',department:'Verkoop',email:'kim.hermans@drainpro.example',phone:'+32 11 61 22 90',mobile:'+32 474 70 11 25',isPrimary:true,active:true }] },
     { id: 'org-aquageo', name: 'AquaGeo NV', type: 'Privaat', contactName: 'Tine Verbeeck', email: 'tine.verbeeck@aquageo.example', vatNumber: 'BE0698765412', addressLine: 'Waterbouwlaan 9', postalCode: '2200', city: 'Herentals', countryCode: 'BE', peppolEndpointId: '0698765412', peppolSchemeId: '0208', roles: ['Onderaannemer','Studiebureau'], contacts: [{ id:'contact-aquageo-tine',firstName:'Tine',lastName:'Verbeeck',jobTitle:'Projectmanager bemaling',department:'Uitvoering',email:'tine.verbeeck@aquageo.example',phone:'+32 14 54 21 80',mobile:'+32 476 22 35 91',isPrimary:true,active:true }] },
     { id:'org-family-home-client', name:'Familie Vermeiren', type:'Privaat', contactName:'Tom en Sarah Vermeiren', email:'familie.vermeiren@demo.aifestival.be', vatNumber:'', addressLine:'Bosveldlaan 18', postalCode:'3550', city:'Heusden-Zolder', countryCode:'BE', peppolEndpointId:'', peppolSchemeId:'0208', roles:['Klant','Opdrachtgever'], contacts:[{id:'contact-family-home',firstName:'Tom en Sarah',lastName:'Vermeiren',jobTitle:'Bouwheer',department:'',email:'familie.vermeiren@demo.aifestival.be',phone:'',mobile:'+32 470 12 34 56',isPrimary:true,active:true}] },
+    { id:'org-bosmans-taverniers', name:'Familie Bosmans-Taverniers', type:'Privaat', contactName:'Jurgen Bosmans', email:'jurgen.bosmans@bosis.be', vatNumber:'', addressLine:'', postalCode:'3550', city:'Heusden-Zolder', countryCode:'BE', peppolEndpointId:'', peppolSchemeId:'0208', roles:['Klant','Opdrachtgever'], contacts:[{id:'contact-bosmans-taverniers',firstName:'Jurgen',lastName:'Bosmans',jobTitle:'Bouwheer',department:'',email:'jurgen.bosmans@bosis.be',phone:'',mobile:'+32 478 73 01 51',isPrimary:true,active:true}] },
   ],
   opportunities: [
     { id: 'opp-n72', projectNumber: 'OPP-2026-041', title: 'Herinrichting N72 – fase 2', organizationId: 'org-awv', location: 'Limburg', deadline: '2026-07-24', estimatedValue: 4_100_000, probability: 100, stage: 'Gewonnen', recognition: 'C5', tender: demoTender({ deadline:'2026-07-24', recognition:'C5', documents:['document-n72-contract'], completed:6, status:'Ingediend', ownerEmployeeId:'employee-demo-sofie', reviewerEmployeeId:'employee-demo-lars', submissionReference:'E-PROC-2026-041-78421', approved:true }) },
@@ -309,10 +312,12 @@ const seed: BouwFlowState = {
     { id: 'opp-waterfront', projectNumber: 'OPP-2026-049', title: 'Waterfront Hasselt – infrastructuur', organizationId: 'org-waterweg', location: 'Hasselt', deadline: '2026-10-02', estimatedValue: 34_900_000, probability: 60, stage: 'Gekwalificeerd', recognition: 'C', tender: demoTender({ deadline:'2026-10-02', recognition:'C', documents:['document-waterfront-leidraad'], completed:2, status:'Gepland', ownerEmployeeId:'employee-demo-sofie' }) },
     { id: 'opp-campus', projectNumber: 'OPP-2026-052', title: 'Campus Gasthuisberg mobiliteitslus', organizationId: 'org-leuven', location: 'Leuven', deadline: '2026-10-30', estimatedValue: 39_400_000, probability: 25, stage: 'Nieuw', recognition: 'C5', tender: demoTender({ deadline:'2026-10-30', recognition:'C5', documents:['document-campus-selectieleidraad','document-campus-meetstaat','document-campus-plannen'], completed:1, status:'Niet gestart', questions:[{id:'question-campus-1',question:'Welke fasen moeten tijdens de examenperiode volledig verkeersvrij blijven?',askedOn:'2026-07-24',status:'Open'}] }) },
     { id:'opp-family-home-bim', projectNumber:'OPP-WONING-BIM-001', title:'Gezinswoning Bosveld · BIM 3D/4D/5D', organizationId:'org-family-home-client', legalEntityId:'entity-bouwflow', branchId:'branch-hasselt', location:'Heusden-Zolder', deadline:'2026-08-21', estimatedValue:535_000, probability:100, stage:'Gewonnen', recognition:'Private woningbouw', tender:demoTender({deadline:'2026-08-21',recognition:'Private woningbouw',documents:[],completed:6,status:'Ingediend',ownerEmployeeId:'employee-demo-sofie',reviewerEmployeeId:'employee-demo-lars',submissionReference:'WON-BIM-2026-001',approved:true}) },
+    { id:'opp-bosmans-taverniers', projectNumber:'OPP-BT-BA-001', title:'Woning Bosmans-Taverniers · DWG + meetstaat', organizationId:'org-bosmans-taverniers', legalEntityId:'entity-bouwflow', branchId:'branch-hasselt', location:'Bolderberg, Heusden-Zolder', deadline:'2026-08-31', estimatedValue:313_890.6276, probability:100, stage:'Gewonnen', recognition:'Private woningbouw', tender:demoTender({deadline:'2026-08-31',recognition:'Private woningbouw',documents:[],completed:4,status:'Gepland',ownerEmployeeId:'employee-demo-sofie',reviewerEmployeeId:'employee-demo-lars'}) },
   ],
   calculations: [
     buildOosterweelClass8DemoCalculation(),
     buildFamilyHomeBimCalculation(),
+    buildBosmansTaverniersCalculation(),
     {
       id: 'calc-n72', number: 'CAL-2026-041', opportunityId: 'opp-n72', status: 'In opmaak', overheadPct: 8, riskPct: 3, marginPct: 10, updatedAt: todayIso(),
       chapters: [
@@ -425,7 +430,7 @@ const seed: BouwFlowState = {
     {id:'change-n72-3',number:'MW-013',projectId:'project-n72',workPackageId:'wp-n72-5',date:'2026-07-12',cause:'Wijziging opdrachtgever',description:'Verplaatsen lichtmast LM-23',initiator:'Opdrachtgever',responsibleParty:'Opdrachtgever',scheduleImpactDays:0,costs:{labor:1250,material:1800,equipment:900,transport:300,subcontracting:700,other:0},total:4950,photoIds:[],status:'Goedgekeurd',createdAt:'2026-07-12T10:00:00.000Z',approvedBy:'Peter Vrancken',approvedAt:'2026-07-13T12:00:00.000Z'},
     {id:'change-ka-1',number:'MW-004',projectId:'project-kanaalkom',workPackageId:'wp-ka-1',date:'2026-07-10',cause:'Onvoorziene bodemgesteldheid',description:'Aanvullende waterzuivering bemalingswater',initiator:'Werfleiding',responsibleParty:'In onderzoek',scheduleImpactDays:15,costs:{labor:32000,material:74000,equipment:91000,transport:12000,subcontracting:165000,other:18000},total:392000,photoIds:[],status:'Ter goedkeuring',createdAt:'2026-07-10T09:00:00.000Z',calculatedAt:'2026-07-14T11:00:00.000Z',submittedAt:'2026-07-15T16:00:00.000Z'},
   ],
-  progressStatements: [buildFamilyHomeBimProgressStatement(), {
+  progressStatements: [buildBosmansTaverniersProgressStatement(), buildFamilyHomeBimProgressStatement(), {
     id:'progress-n72-2026-07',number:'VS-2026-07-001',projectId:'project-n72',periodStart:'2026-07-01',periodEnd:'2026-07-31',
     lines:[
       {workPackageId:'wp-n72-1',workPackageCode:'1',workPackageName:'Voorbereiding & ontwerp',cumulativeProgressPct:100,contractValue:247123,previousCumulative:0,currentPeriod:247123,cumulativeValue:247123},

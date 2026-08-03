@@ -21,6 +21,8 @@ type Props = {
   elementState?:(element:FamilyHomeViewerElement)=>'complete'|'active'|'future'|'timeline-complete'|'timeline-active'|'timeline-future'|''
   onToggle?:(id:string,additive:boolean)=>void
   className?:string
+  modelLabel?:string
+  levelLabels?:string[]
 }
 
 const baseColor = (element:FamilyHomeViewerElement) => {
@@ -34,7 +36,7 @@ const baseColor = (element:FamilyHomeViewerElement) => {
   return '#d5c2a2'
 }
 
-export default function FamilyHomeBimViewer({elements,selectedIds,dimension,elementState,onToggle,className=''}:Props){
+export default function FamilyHomeBimViewer({elements,selectedIds,dimension,elementState,onToggle,className='',modelLabel='Vrijstaande gezinswoning · LOD350',levelLabels=['Dak','Verdieping 1','Gelijkvloers']}:Props){
   const hostRef=useRef<HTMLDivElement>(null)
   const sceneRef=useRef<THREE.Scene|undefined>(undefined)
   const groupRef=useRef<THREE.Group|undefined>(undefined)
@@ -47,9 +49,9 @@ export default function FamilyHomeBimViewer({elements,selectedIds,dimension,elem
     if(!host)return
     const scene=new THREE.Scene()
     scene.background=new THREE.Color('#172a31')
-    scene.fog=new THREE.Fog('#172a31',22,42)
+    scene.fog=new THREE.Fog('#172a31',28,58)
     const camera=new THREE.PerspectiveCamera(38,1,.1,100)
-    camera.position.set(14,10.5,15.5)
+    camera.position.set(20,14,22)
     const renderer=new THREE.WebGLRenderer({antialias:true,alpha:false})
     renderer.setPixelRatio(Math.min(window.devicePixelRatio,2))
     renderer.outputColorSpace=THREE.SRGBColorSpace
@@ -62,8 +64,8 @@ export default function FamilyHomeBimViewer({elements,selectedIds,dimension,elem
     const controls=new OrbitControls(camera,renderer.domElement)
     controls.target.set(0,2.6,0)
     controls.enableDamping=true
-    controls.minDistance=10
-    controls.maxDistance=32
+    controls.minDistance=8
+    controls.maxDistance=46
     controls.maxPolarAngle=Math.PI*.48
 
     scene.add(new THREE.HemisphereLight('#dff5ff','#26342b',2.15))
@@ -142,7 +144,7 @@ export default function FamilyHomeBimViewer({elements,selectedIds,dimension,elem
 
   return <div className={`family-home-three-viewer ${className}`}>
     <div ref={hostRef} className="family-home-three-host"/>
-    <div className="family-home-three-caption"><strong>Vrijstaande gezinswoning · LOD350</strong><span>Slepen = roteren · scrollen = zoomen · klik = BIM-object selecteren</span></div>
-    <div className="family-home-three-levels"><span>Dak</span><span>Verdieping 1</span><span>Gelijkvloers</span></div>
+    <div className="family-home-three-caption"><strong>{modelLabel}</strong><span>Slepen = roteren · scrollen = zoomen · klik = BIM-object selecteren</span></div>
+    <div className="family-home-three-levels">{levelLabels.map(label=><span key={label}>{label}</span>)}</div>
   </div>
 }
