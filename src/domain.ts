@@ -1779,6 +1779,15 @@ export interface BimProgressEvidence {
   status: 'Concept' | 'Gecontroleerd'
   clashFree: boolean
   notes: string
+  lidarEvidence?: {
+    scanSessionId: string
+    captureMode: 'RoomPlan' | 'ARKit mesh' | 'Gecombineerd'
+    deviceName: string
+    registrationRmsMm: number
+    confidencePct: number
+    artifactIds: string[]
+    bcfTopicIds: string[]
+  }
 }
 
 export interface ProgressStatementLineInput {

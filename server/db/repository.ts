@@ -16,6 +16,7 @@ import type { PeppolNotificationTarget } from '../peppol/notification.js'
 import type { CentralMailMessage } from '../microsoft365-mail.js'
 import type { PriceIndexProvider } from '../price-index-service.js'
 import { CheckinatworkGatewayError, SimulationCheckinatworkGateway, type CheckinatworkGateway } from '../checkinatwork-gateway.js'
+import { analyzeLidarObservations, approveLidarProposal, buildAsBuiltRevision, buildLidarProgressProposals, createLidarBcfTopic, registerLidarScan, type LidarArtifact, type LidarBcfTopic, type LidarControlPoint, type LidarElementObservation, type LidarScanInput, type LidarScanSession } from '../../src/lidar-bim.js'
 
 const workflowCorrectionSequences: Record<WorkflowCorrectionInput['dossierType'], string[]> = {
   opportunity: ['Nieuw','Gekwalificeerd','Go/No-Go','Calculatie','Offerte verstuurd','Onderhandeling','Gewonnen'],
@@ -327,6 +328,15 @@ function documentExtension(fileName: string, mimeType: string) {
   const extension = fileName.split('.').pop()?.toLowerCase()
   if (mimeType === 'application/octet-stream' && extension && ['pdf', 'doc', 'docx', 'xls', 'xlsx', 'csv', 'txt', 'dwg'].includes(extension)) return extension
   throw new RepositoryError('Dit bestandstype is niet toegestaan voor documentbeheer', 415)
+}
+
+function lidarArtifactExtension(fileName:string,mimeType:string){
+  const extension=fileName.split('.').pop()?.toLowerCase()
+  const allowed=new Set(['usdz','json','ply','obj','zip','jpg','jpeg','png','webp','heic'])
+  if(extension&&allowed.has(extension))return extension==='jpeg'?'jpg':extension
+  const byMime:Record<string,string>={'model/vnd.usdz+zip':'usdz','application/json':'json','application/zip':'zip','image/jpeg':'jpg','image/png':'png','image/webp':'webp','image/heic':'heic'}
+  const mapped=byMime[mimeType];if(mapped)return mapped
+  throw new RepositoryError('Alleen USDZ, RoomPlan-JSON, PLY/OBJ, ZIP en werffotoâ€™s zijn toegestaan als LiDAR-bewijs',415)
 }
 
 function mapOpportunity(row: OpportunityRow): Opportunity {
@@ -2904,6 +2914,39 @@ export class BouwFlowRepository {
     })
     await this.objectStorage.delete(storageKey)
   }
+
+  private async lidarSession(client:SqlClient,context:RequestContext,id:string,lock=false):Promise<LidarScanSession>{
+    const result=await client.query<{session_data:LidarScanSession|string}&QueryResultRow>(`SELECT session_data FROM lidar_scan_sessions WHERE tenant_id=$1 AND id=$2${lock?' FOR UPDATE':''}`,[context.tenantId,id])
+    if(!result.rowCount)throw new RepositoryError('LiDAR-scansessie niet gevonden',404)
+    const session=jsonValue<LidarScanSession>(result.rows[0].session_data)
+    await this.requireProject(client,context,session.projectId)
+    return session
+  }
+
+  async listLidarScans(context:RequestContext,projectId:string):Promise<LidarScanSession[]>{
+    await this.requireProject(this.pool as unknown as SqlClient,context,projectId)
+    const result=await this.pool.query<{session_data:LidarScanSession|string}&QueryResultRow>('SELECT session_data FROM lidar_scan_sessions WHERE tenant_id=$1 AND project_id=$2 ORDER BY updated_at DESC',[context.tenantId,projectId])
+    return result.rows.map(row=>jsonValue<LidarScanSession>(row.session_data))
+  }
+
+  async createLidarScan(context:RequestContext,projectId:string,input:LidarScanInput&{controlPoints?:LidarControlPoint[];observations?:LidarElementObservation[]}):Promise<LidarScanSession>{
+    return this.transaction(async client=>{await this.requireProject(client,context,projectId);if(!input.deviceSupportsLidar)throw new RepositoryError('Dit toestel rapporteert geen ondersteunde LiDAR-sensor',409);const session:LidarScanSession={id:randomUUID(),projectId,...input,status:'Opgenomen',controlPoints:input.controlPoints??[],registration:undefined,artifacts:[],observations:input.observations??[],matches:[],progressProposals:[],bcfTopics:[],asBuiltRevisions:[]};await client.query('INSERT INTO lidar_scan_sessions (tenant_id,id,project_id,session_data) VALUES ($1,$2,$3,$4)',[context.tenantId,session.id,projectId,JSON.stringify(session)]);await this.audit(client,context,'lidar_scan',session.id,'captured',null,session,`${session.modelName} Â· ${session.zone}`);return session})
+  }
+
+  async uploadLidarArtifact(context:RequestContext,scanId:string,input:{kind:LidarArtifact['kind'];capturedAt:string},file:{fileName:string;mimeType:string;data:Buffer}):Promise<LidarScanSession>{
+    const artifactId=randomUUID();const extension=lidarArtifactExtension(file.fileName,file.mimeType);const storageKey=`${context.tenantId}/lidar/${scanId}/${artifactId}.${extension}`;await this.objectStorage.put(storageKey,file.data)
+    try{return await this.transaction(async client=>{const current=await this.lidarSession(client,context,scanId,true);if(current.status==='As-built gepubliceerd')throw new RepositoryError('Een gepubliceerde LiDAR-sessie is onveranderlijk',409);const artifact:LidarArtifact={id:artifactId,kind:input.kind,fileName:file.fileName.slice(0,255),mimeType:file.mimeType,sizeBytes:file.data.length,digest:createHash('sha256').update(file.data).digest('hex'),storageKey,capturedAt:input.capturedAt};const updated={...current,artifacts:[...current.artifacts,artifact]};await client.query('UPDATE lidar_scan_sessions SET session_data=$3,updated_at=now() WHERE tenant_id=$1 AND id=$2',[context.tenantId,scanId,JSON.stringify(updated)]);await this.audit(client,context,'lidar_scan',scanId,'artifact_uploaded',current,updated,artifact.fileName);return updated})}catch(error){await this.objectStorage.delete(storageKey);throw error}
+  }
+
+  async registerLidarSession(context:RequestContext,id:string,controlPoints:LidarControlPoint[],registeredBy:string):Promise<LidarScanSession>{return this.transaction(async client=>{const current=await this.lidarSession(client,context,id,true);if(current.status==='As-built gepubliceerd')throw new RepositoryError('Een gepubliceerde LiDAR-sessie is onveranderlijk',409);const registration=registerLidarScan(controlPoints,registeredBy);const updated:LidarScanSession={...current,controlPoints,registration,status:'Uitgelijnd'};await client.query('UPDATE lidar_scan_sessions SET session_data=$3,updated_at=now() WHERE tenant_id=$1 AND id=$2',[context.tenantId,id,JSON.stringify(updated)]);await this.audit(client,context,'lidar_scan',id,'registered',current,updated,`${registration.rmsErrorMm} mm RMS`);return updated})}
+
+  async analyzeLidarSession(context:RequestContext,id:string,observations:LidarElementObservation[]):Promise<LidarScanSession>{return this.transaction(async client=>{const current=await this.lidarSession(client,context,id,true);if(!current.registration)throw new RepositoryError('Lijn de scan eerst uit met minstens drie controlepunten',409);const projectResult=await client.query<ProjectRow>('SELECT * FROM projects WHERE tenant_id=$1 AND id=$2',[context.tenantId,current.projectId]);const project=this.mapProject(projectResult.rows[0]);const matches=analyzeLidarObservations(observations);const progressProposals=buildLidarProgressProposals(id,matches,project.workPackages);if(!progressProposals.length)throw new RepositoryError('Geen scanobjecten konden aan projectwerkpakketten worden gekoppeld',409);const updated:LidarScanSession={...current,observations,matches,progressProposals,status:progressProposals.some(item=>item.reviewReasons.length)?'Ter goedkeuring':'Geanalyseerd'};await client.query('UPDATE lidar_scan_sessions SET session_data=$3,updated_at=now() WHERE tenant_id=$1 AND id=$2',[context.tenantId,id,JSON.stringify(updated)]);await this.audit(client,context,'lidar_scan',id,'analyzed',current,updated,`${matches.length} IFC-objecten`);return updated})}
+
+  async approveLidarProgress(context:RequestContext,id:string,proposalId:string,approvedBy:string):Promise<LidarScanSession>{return this.transaction(async client=>{const current=await this.lidarSession(client,context,id,true);const proposal=current.progressProposals.find(item=>item.id===proposalId);if(!proposal)throw new RepositoryError('LiDAR-vorderingsvoorstel niet gevonden',404);const approved=approveLidarProposal(proposal,approvedBy);const progressProposals=current.progressProposals.map(item=>item.id===proposalId?approved:item);const updated:LidarScanSession={...current,progressProposals,status:progressProposals.every(item=>['Goedgekeurd','Afgekeurd'].includes(item.status))?'Goedgekeurd':'Ter goedkeuring'};await client.query('UPDATE lidar_scan_sessions SET session_data=$3,updated_at=now() WHERE tenant_id=$1 AND id=$2',[context.tenantId,id,JSON.stringify(updated)]);await this.audit(client,context,'lidar_scan',id,'progress_approved',current,updated,proposal.workPackageName);return updated})}
+
+  async addLidarBcfTopic(context:RequestContext,id:string,input:Omit<LidarBcfTopic,'id'|'scanSessionId'|'status'|'createdAt'>):Promise<LidarScanSession>{return this.transaction(async client=>{const current=await this.lidarSession(client,context,id,true);const topic=createLidarBcfTopic({...input,scanSessionId:id});const updated:LidarScanSession={...current,bcfTopics:[topic,...current.bcfTopics]};await client.query('UPDATE lidar_scan_sessions SET session_data=$3,updated_at=now() WHERE tenant_id=$1 AND id=$2',[context.tenantId,id,JSON.stringify(updated)]);await this.audit(client,context,'lidar_scan',id,'bcf_created',current,updated,topic.title);return updated})}
+
+  async publishLidarAsBuilt(context:RequestContext,id:string,createdBy:string):Promise<LidarScanSession>{return this.transaction(async client=>{const current=await this.lidarSession(client,context,id,true);const revision=buildAsBuiltRevision(current,createdBy);const updated:LidarScanSession={...current,status:'As-built gepubliceerd',asBuiltRevisions:[revision,...current.asBuiltRevisions]};await client.query('UPDATE lidar_scan_sessions SET session_data=$3,updated_at=now() WHERE tenant_id=$1 AND id=$2',[context.tenantId,id,JSON.stringify(updated)]);await this.audit(client,context,'lidar_scan',id,'as_built_published',current,updated,revision.revision);return updated})}
 
   async createDocument(context: RequestContext, projectId: string, input: DocumentUploadInput, file: { fileName: string; mimeType: string; data: Buffer }): Promise<ProjectDocument> {
     const documentId = randomUUID()

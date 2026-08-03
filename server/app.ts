@@ -12,6 +12,7 @@ import { enforceCompanyScope } from './company-access.js'
 import { applyCostSchema, boqItemPatchSchema, boqItemSchema, bulkCostUpdateSchema, bulkPriceAdjustmentSchema, calculationPatchSchema, calculationScenarioPatchSchema, calculationScenarioSchema, calculationStructureSchema, calculationTemplateSchema, calculationVersionSchema, changeOrderApprovalSchema, changeOrderSchema, chapterSchema, commitmentSettlementSchema, companyBranchSchema, companyUserAccessSchema, companyUserProfileSchema, costLibraryItemPatchSchema, costLibraryItemSchema, costLibraryPatchSchema, costLibrarySchema, costLibraryVersionSchema, crmActivitySchema, dailyReportSchema, dailyReportSignSchema, documentApprovalSchema, documentDistributionSchema, documentMetadataSchema, documentRevisionSchema, documentUploadSchema, intercompanyChargeSchema, legalEntityFinancialSchema, legalEntitySchema, opportunityGoNoGoSchema, opportunitySchema, organizationBillingSchema, organizationRelationSchema, organizationSchema, paymentRegistrationSchema, peppolAcceptanceReleaseSchema, peppolNotificationSettingsSchema, peppolNotificationTestSchema, postCalculationFeedbackSchema, procurementRequestSchema, progressStatementApprovalSchema, progressStatementSchema, projectBaselineSchema, projectCompanyAssignmentSchema, projectCostSchema, projectDetailsSchema, projectForecastSchema, projectPlanningSchema, projectStartupSchema, purchaseDeviationApprovalSchema, purchaseInvoiceMatchSchema, purchaseReceiptSchema, qhseCertificateSchema, qhseFindingParams, qhseInspectionSchema, quoteApprovalSchema, quoteContentSchema, quoteLossSchema, quoteReminderSchema, quoteSendSchema, quoteSignatureSchema, salesInvoiceIssueSchema, salesInvoiceSchema, sitePhotoSchema, supplierFrameworkAgreementSchema, supplierQuoteSchema, supplierSchema, tenderDossierSchema, unitConversionSchema, unitPatchSchema, unitSchema, uuidParams, workflowCorrectionSchema, workflowDefinitionSchema } from './schemas.js'
 import { assetOperationalSchema, assetSchema, documentRecordLinkSchema, inventoryCountSchema, inventoryItemSchema, stockMovementSchema, warehouseSchema } from './schemas.js'
 import { aiAnalysisSchema, aiApprovalSchema, checkinatworkCancellationSchema, checkinatworkParticipantSchema, checkinatworkRegistrationSchema, checkinatworkSiteSchema, closeoutItemSchema, employeeAbsenceDecisionSchema, employeeAbsenceSchema, employeeCrewSchema, employeeSchema, jointVentureSchema, projectClaimSchema, projectClaimTransitionSchema, projectCloseoutSchema, projectContractSchema, projectContractUpdateSchema, qhseEventSchema, subcontractorOperationSchema, subcontractorProgressDecisionSchema, subcontractorSchema, timeEntryDecisionSchema, timeEntrySchema, workTicketSchema, workTicketSignatureSchema } from './schemas.js'
+import { lidarAnalysisSchema, lidarApprovalSchema, lidarArtifactSchema, lidarAsBuiltSchema, lidarBcfSchema, lidarRegistrationSchema, lidarScanSchema } from './schemas.js'
 import { BoqFileError, parseBoqFile } from './import/boq-parser.js'
 import { renderQuotePdf } from './pdf/quote-pdf.js'
 import { renderPurchaseOrderPdf } from './pdf/purchase-order-pdf.js'
@@ -716,6 +717,41 @@ export async function buildApp({ pool, authMode = 'development', logger = false,
     const { id } = uuidParams.parse(request.params)
     await repository.deleteSitePhoto(request.context, id)
     return reply.code(204).send()
+  })
+
+  const lidarIdParams=z.object({id:z.uuid()})
+  const lidarProposalParams=z.object({id:z.uuid(),proposalId:z.string().trim().min(1).max(300)})
+
+  app.get('/api/projects/:id/lidar-scans', { preHandler: requireRoles('Administrator','Projectmanager','Werfleider','Werkvoorbereider','Calculator','Kwaliteitsverantwoordelijke') }, async request=>{
+    const {id}=uuidParams.parse(request.params);return repository.listLidarScans(request.context,id)
+  })
+
+  app.post('/api/projects/:id/lidar-scans', { preHandler: requireRoles('Administrator','Projectmanager','Werfleider','Werkvoorbereider') }, async (request,reply)=>{
+    const {id}=uuidParams.parse(request.params);return reply.code(201).send(await repository.createLidarScan(request.context,id,lidarScanSchema.parse(request.body)))
+  })
+
+  app.post('/api/lidar-scans/:id/artifacts', { preHandler: requireRoles('Administrator','Projectmanager','Werfleider','Werkvoorbereider') }, async (request,reply)=>{
+    const {id}=lidarIdParams.parse(request.params);const upload=await request.file();if(!upload)throw new RepositoryError('Selecteer een LiDAR-bewijsbestand',400);const data=await upload.toBuffer();const fields=upload.fields as unknown as Record<string,unknown>;const input=lidarArtifactSchema.parse({kind:multipartField(fields,'kind'),capturedAt:multipartField(fields,'capturedAt')});return reply.code(201).send(await repository.uploadLidarArtifact(request.context,id,input,{fileName:upload.filename,mimeType:upload.mimetype,data}))
+  })
+
+  app.post('/api/lidar-scans/:id/register', { preHandler: requireRoles('Administrator','Projectmanager','Werfleider','Werkvoorbereider','Kwaliteitsverantwoordelijke') }, async request=>{
+    const {id}=lidarIdParams.parse(request.params);const input=lidarRegistrationSchema.parse(request.body);return repository.registerLidarSession(request.context,id,input.controlPoints,input.registeredBy)
+  })
+
+  app.post('/api/lidar-scans/:id/analyze', { preHandler: requireRoles('Administrator','Projectmanager','Werfleider','Werkvoorbereider','Calculator','Kwaliteitsverantwoordelijke') }, async request=>{
+    const {id}=lidarIdParams.parse(request.params);return repository.analyzeLidarSession(request.context,id,lidarAnalysisSchema.parse(request.body).observations)
+  })
+
+  app.post('/api/lidar-scans/:id/proposals/:proposalId/approve', { preHandler: requireRoles('Administrator','Projectmanager','Kwaliteitsverantwoordelijke') }, async request=>{
+    const {id,proposalId}=lidarProposalParams.parse(request.params);return repository.approveLidarProgress(request.context,id,proposalId,lidarApprovalSchema.parse(request.body).approvedBy)
+  })
+
+  app.post('/api/lidar-scans/:id/bcf-topics', { preHandler: requireRoles('Administrator','Projectmanager','Werfleider','Werkvoorbereider','Kwaliteitsverantwoordelijke') }, async (request,reply)=>{
+    const {id}=lidarIdParams.parse(request.params);return reply.code(201).send(await repository.addLidarBcfTopic(request.context,id,lidarBcfSchema.parse(request.body)))
+  })
+
+  app.post('/api/lidar-scans/:id/as-built', { preHandler: requireRoles('Administrator','Projectmanager','Kwaliteitsverantwoordelijke') }, async request=>{
+    const {id}=lidarIdParams.parse(request.params);return repository.publishLidarAsBuilt(request.context,id,lidarAsBuiltSchema.parse(request.body).createdBy)
   })
 
   app.post('/api/projects/:id/documents', { preHandler: requireRoles('Administrator', 'Projectmanager', 'Werkvoorbereider', 'Calculator', 'Onderaannemer') }, async (request, reply) => {
