@@ -1094,6 +1094,15 @@ ALTER TABLE blueprint_state ADD COLUMN IF NOT EXISTS time_entries jsonb NOT NULL
 ALTER TABLE blueprint_state ADD COLUMN IF NOT EXISTS project_claims jsonb NOT NULL DEFAULT '[]';
 ALTER TABLE blueprint_state ADD COLUMN IF NOT EXISTS workflow_definitions jsonb NOT NULL DEFAULT '[]';
 
+CREATE TABLE IF NOT EXISTS checkinatwork_state (
+  tenant_id uuid PRIMARY KEY REFERENCES tenants(id),
+  sites jsonb NOT NULL DEFAULT '[]',
+  participants jsonb NOT NULL DEFAULT '[]',
+  registrations jsonb NOT NULL DEFAULT '[]',
+  audit_events jsonb NOT NULL DEFAULT '[]',
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
 CREATE TABLE IF NOT EXISTS user_project_access (
   tenant_id uuid NOT NULL REFERENCES tenants(id),
   user_id uuid NOT NULL,

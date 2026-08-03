@@ -2396,6 +2396,121 @@ export interface TimeEntry {
 
 export type TimeEntryInput = Omit<TimeEntry, 'id' | 'status' | 'createdAt' | 'approvedBy' | 'approvedAt'>
 
+export type CheckinatworkApplicability = 'Te beoordelen' | 'Verplicht' | 'Niet verplicht' | 'Be\u00ebindigd'
+export type CheckinatworkEnvironment = 'Simulatie' | 'Productie'
+export type CheckinatworkParticipantType = 'Werknemer' | 'Zelfstandige' | 'Interim' | 'Onderaannemer' | 'Architect' | 'Veiligheidsco\u00f6rdinator'
+export type CheckinatworkIdentifierType = 'INSZ' | 'Limosa'
+export type CheckinatworkRegistrationStatus = 'Gepland' | 'Lokaal geregistreerd' | 'Verzending bezig' | 'Officieel bevestigd' | 'Geweigerd' | 'Geannuleerd' | 'Extern geregistreerd'
+export type CheckinatworkRegistrationSource = 'Mobiel' | 'QR' | 'Badge' | 'Kiosk' | 'Planning' | 'Manueel' | 'Import'
+export type CheckinatworkCancellationReason = 'HOLIDAY' | 'DISEASE' | 'PLANNING' | 'C32A'
+
+export interface CheckinatworkSite {
+  id: string
+  projectId: string
+  declarationNumber: string
+  workPlaceId: string
+  declarantCompanyNumber: string
+  applicability: CheckinatworkApplicability
+  applicabilityReason: string
+  thresholdAmount: number
+  startDate: string
+  plannedEndDate?: string
+  provisionalAcceptanceOn?: string
+  address: string
+  latitude?: number
+  longitude?: number
+  geofenceRadiusMeters?: number
+  environment: CheckinatworkEnvironment
+  active: boolean
+  createdAt: string
+  updatedAt: string
+}
+
+export type CheckinatworkSiteInput = Omit<CheckinatworkSite, 'id' | 'createdAt' | 'updatedAt'>
+
+export interface CheckinatworkParticipant {
+  id: string
+  projectId: string
+  employeeId?: string
+  subcontractorId?: string
+  displayName: string
+  employerName: string
+  employerCompanyNumber?: string
+  participantType: CheckinatworkParticipantType
+  identifierType: CheckinatworkIdentifierType
+  identifierLast4: string
+  secureIdentityReference?: string
+  identityVerified: boolean
+  limosaExpiresOn?: string
+  active: boolean
+  createdAt: string
+}
+
+export interface CheckinatworkParticipantInput extends Omit<CheckinatworkParticipant, 'id' | 'identifierLast4' | 'secureIdentityReference' | 'identityVerified' | 'createdAt'> {
+  identifier: string
+}
+
+export interface CheckinatworkRegistration {
+  id: string
+  siteId: string
+  projectId: string
+  participantId: string
+  registrationDate: string
+  source: CheckinatworkRegistrationSource
+  status: CheckinatworkRegistrationStatus
+  clientReference: string
+  providerRegistrationId?: string
+  receiptNumber?: string
+  submittedAt?: string
+  confirmedAt?: string
+  cancelledAt?: string
+  cancellationReason?: CheckinatworkCancellationReason
+  errorCode?: string
+  errorMessage?: string
+  simulation: boolean
+  createdBy: string
+  createdAt: string
+}
+
+export interface CheckinatworkRegistrationInput {
+  siteId: string
+  participantId: string
+  registrationDate: string
+  source: CheckinatworkRegistrationSource
+  latitude?: number
+  longitude?: number
+}
+
+export interface CheckinatworkAuditEvent {
+  id: string
+  projectId: string
+  siteId?: string
+  participantId?: string
+  registrationId?: string
+  action: 'SITE_CONFIGURED' | 'IDENTITY_PROVISIONED' | 'REGISTRATION_CREATED' | 'REGISTRATION_CONFIRMED' | 'REGISTRATION_REJECTED' | 'REGISTRATION_CANCELLED' | 'RECONCILIATION_RUN'
+  detail: string
+  actor: string
+  at: string
+}
+
+export interface CheckinatworkIntegrationStatus {
+  simulationAvailable: boolean
+  productionConfigured: boolean
+  productionEnabled: boolean
+  provider: string
+  protocol: string
+  lastCheckedAt?: string
+}
+
+export interface CheckinatworkDashboardAlert {
+  id: string
+  severity: 'Blokkerend' | 'Waarschuwing' | 'Informatie'
+  title: string
+  detail: string
+  participantId?: string
+  registrationId?: string
+}
+
 export interface ProjectClaim {
   id: string
   number: string
@@ -2560,6 +2675,11 @@ export interface BouwFlowState {
   employeeCrews: EmployeeCrew[]
   workTickets: WorkTicket[]
   timeEntries: TimeEntry[]
+  checkinatworkSites: CheckinatworkSite[]
+  checkinatworkParticipants: CheckinatworkParticipant[]
+  checkinatworkRegistrations: CheckinatworkRegistration[]
+  checkinatworkAuditEvents: CheckinatworkAuditEvent[]
+  checkinatworkIntegrationStatus: CheckinatworkIntegrationStatus
   projectClaims: ProjectClaim[]
 }
 
