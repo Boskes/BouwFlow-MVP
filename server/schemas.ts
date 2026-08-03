@@ -697,6 +697,10 @@ export const progressStatementSchema = z.object({
       measuredQuantity: z.number().nonnegative().max(1_000_000_000), verifiedQuantity: z.number().nonnegative().max(1_000_000_000),
       unit: z.enum(['m²','m³','m','st']), completionPct: z.number().min(0).max(100), measuredAt: z.iso.datetime(), measuredBy: z.string().trim().min(2).max(150),
       status: z.enum(['Concept','Gecontroleerd']), clashFree: z.boolean(), notes: z.string().trim().max(1_000),
+      lidarEvidence: z.object({
+        scanSessionId:z.string().trim().min(1).max(150),captureMode:z.enum(['RoomPlan','ARKit mesh','Gecombineerd']),deviceName:z.string().trim().min(1).max(150),
+        registrationRmsMm:z.number().nonnegative().max(10_000),confidencePct:z.number().min(0).max(100),artifactIds:z.array(z.string().trim().min(1).max(150)).max(500),bcfTopicIds:z.array(z.string().trim().min(1).max(150)).max(500),
+      }).optional(),
     }).optional(),
     meetstaatEvidence: z.object({
       sourceCalculationId: z.uuid(),
@@ -728,6 +732,25 @@ export const progressStatementSchema = z.object({
   .refine(value => !value.dueDate || value.dueDate >= (value.valuationDate ?? value.periodEnd), { message: 'De betaaldatum moet op of na de waarderingsdatum liggen', path: ['dueDate'] })
 
 export const progressStatementApprovalSchema = z.object({ approvedBy: z.string().trim().min(2).max(150) })
+
+const lidarVectorSchema=z.object({x:z.number().finite().min(-1_000_000).max(1_000_000),y:z.number().finite().min(-1_000_000).max(1_000_000),z:z.number().finite().min(-1_000_000).max(1_000_000)})
+export const lidarControlPointSchema=z.object({id:z.string().trim().min(1).max(100),label:z.string().trim().min(1).max(150),bim:lidarVectorSchema,scan:lidarVectorSchema,verified:z.boolean()})
+export const lidarObservationSchema=z.object({
+  id:z.string().trim().min(1).max(150),ifcGuid:z.string().trim().min(1).max(150),label:z.string().trim().min(1).max(250),category:z.string().trim().min(1).max(100),workPackageId:z.uuid(),
+  plannedQuantity:z.number().nonnegative().max(1_000_000_000),observedQuantity:z.number().nonnegative().max(1_000_000_000),unit:z.enum(['m\u00b2','m\u00b3','m','st']),measurementRule:z.enum(['Oppervlakte','Volume','Lengte','Aanwezigheid','Foto en controle']),
+  surfaceCoveragePct:z.number().min(0).max(100),visibilityPct:z.number().min(0).max(100),confidencePct:z.number().min(0).max(100),deviationMm:z.number().min(-100_000).max(100_000),photoEvidenceCount:z.number().int().nonnegative().max(10_000),detected:z.boolean(),
+})
+export const lidarScanSchema=z.object({
+  modelId:z.string().trim().min(1).max(150),modelName:z.string().trim().min(1).max(250),modelVersion:z.string().trim().min(1).max(100),zone:z.string().trim().min(1).max(200),storey:z.string().trim().min(1).max(150),
+  deviceName:z.string().trim().min(1).max(150),deviceSupportsLidar:z.boolean(),captureMode:z.enum(['RoomPlan','ARKit mesh','Gecombineerd']),capturedBy:z.string().trim().min(2).max(150),capturedAt:z.iso.datetime(),notes:z.string().trim().max(2_000),
+  controlPoints:z.array(lidarControlPointSchema).max(100).default([]),observations:z.array(lidarObservationSchema).max(50_000).default([]),
+})
+export const lidarRegistrationSchema=z.object({controlPoints:z.array(lidarControlPointSchema).min(3).max(100),registeredBy:z.string().trim().min(2).max(150)})
+export const lidarAnalysisSchema=z.object({observations:z.array(lidarObservationSchema).min(1).max(50_000)})
+export const lidarApprovalSchema=z.object({approvedBy:z.string().trim().min(2).max(150)})
+export const lidarBcfSchema=z.object({title:z.string().trim().min(3).max(250),description:z.string().trim().min(3).max(5_000),priority:z.enum(['Laag','Normaal','Hoog','Kritiek']),ifcGuids:z.array(z.string().trim().min(1).max(150)).min(1).max(5_000),viewpoint:z.object({camera:lidarVectorSchema,direction:lidarVectorSchema,snapshotArtifactId:z.string().trim().min(1).max(150).optional()}),assignedTo:z.string().trim().max(150).optional(),dueDate:z.iso.date().optional(),createdBy:z.string().trim().min(2).max(150)})
+export const lidarAsBuiltSchema=z.object({createdBy:z.string().trim().min(2).max(150)})
+export const lidarArtifactSchema=z.object({kind:z.enum(['RoomPlan JSON','USDZ','Mesh','Puntenwolk','Foto','Dieptekaart']),capturedAt:z.iso.datetime()})
 
 export const peppolAcceptanceReleaseSchema = z.object({
   releasedBy: z.string().trim().min(2).max(150),

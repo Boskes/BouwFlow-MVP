@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { organizationSchema, priceRevisionClauseSchema, progressStatementSchema } from './schemas'
+import { lidarAnalysisSchema, lidarRegistrationSchema, lidarScanSchema, organizationSchema, priceRevisionClauseSchema, progressStatementSchema } from './schemas'
 
 const organization = {
   name: 'Bouwpartner NV',
@@ -68,5 +68,21 @@ describe('priceRevisionClauseSchema',()=>{
 
   it('weigert gewichten die niet samen 100 procent vormen',()=>{
     expect(priceRevisionClauseSchema.safeParse({...valid,fixedWeightPct:15}).success).toBe(false)
+  })
+})
+
+describe('LiDAR API-contract',()=>{
+  const workPackageId='10000000-0000-4000-8000-000000000001'
+  const point=(id:string)=>({id,label:`Punt ${id}`,bim:{x:10,y:5,z:0},scan:{x:0,y:0,z:0},verified:true})
+  const observation={id:'wall-1',ifcGuid:'2A4x_GUID',label:'Dragende wand',category:'Wanden',workPackageId,plannedQuantity:42,observedQuantity:31.5,unit:'m\u00b2',measurementRule:'Oppervlakte',surfaceCoveragePct:75,visibilityPct:92,confidencePct:94,deviationMm:12,photoEvidenceCount:2,detected:true}
+
+  it('aanvaardt een native iPhone scansessie en IFC-observaties',()=>{
+    const scan=lidarScanSchema.parse({modelId:'ifc-woning',modelName:'Woning.ifc',modelVersion:'AFC-01',zone:'Gelijkvloers',storey:'00',deviceName:'iPhone Pro',deviceSupportsLidar:true,captureMode:'Gecombineerd',capturedBy:'Werfleider',capturedAt:'2026-08-03T08:00:00.000Z',notes:'Werfscan',controlPoints:[point('a'),point('b'),point('c')],observations:[observation]})
+    expect(scan.observations[0].unit).toBe('m\u00b2')
+    expect(lidarAnalysisSchema.safeParse({observations:[observation]}).success).toBe(true)
+  })
+
+  it('vereist minstens drie controlepunten voor registratie',()=>{
+    expect(lidarRegistrationSchema.safeParse({registeredBy:'BIM-coÃ¶rdinator',controlPoints:[point('a'),point('b')]}).success).toBe(false)
   })
 })

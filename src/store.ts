@@ -24,6 +24,7 @@ import { getBimProductionTestModel } from './bim-test-models'
 import { buildDailyReportEvidence, buildMeetstaatEvidence } from './progress-measurements'
 import { calculateContractPriceRevision, demoPriceIndexCatalogue } from './price-revision'
 import { CHECKINATWORK_THRESHOLD, maskCheckinatworkIdentifier } from './checkinatwork'
+import type { LidarArtifact, LidarBcfTopic, LidarControlPoint, LidarElementObservation, LidarScanInput } from './lidar-bim'
 
 const STORAGE_KEY = 'bouwflow.mvp.v1'
 const DEMO_DATA_VERSION_KEY = 'bouwflow.demo.version'
@@ -1498,6 +1499,14 @@ export function useBouwFlowStore(tokenProvider?: () => Promise<string | undefine
         return { ...current, dailyReports: [report, ...current.dailyReports] }
       })
     },
+    async listLidarScans(projectId:string){if(!api)return [];return (await remote(()=>api.listLidarScans(projectId),()=>undefined))??[]},
+    async createLidarScan(projectId:string,input:LidarScanInput&{controlPoints?:LidarControlPoint[];observations?:LidarElementObservation[]}){if(!api)return undefined;return remote(()=>api.createLidarScan(projectId,input),()=>undefined)},
+    async uploadLidarArtifact(scanId:string,file:File,input:{kind:LidarArtifact['kind'];capturedAt:string}){if(!api)return undefined;return remote(()=>api.uploadLidarArtifact(scanId,file,input),()=>undefined)},
+    async registerLidarScan(scanId:string,controlPoints:LidarControlPoint[],registeredBy:string){if(!api)return undefined;return remote(()=>api.registerLidarScan(scanId,controlPoints,registeredBy),()=>undefined)},
+    async analyzeLidarScan(scanId:string,observations:LidarElementObservation[]){if(!api)return undefined;return remote(()=>api.analyzeLidarScan(scanId,observations),()=>undefined)},
+    async approveLidarProposal(scanId:string,proposalId:string,approvedBy:string){if(!api)return undefined;return remote(()=>api.approveLidarProposal(scanId,proposalId,approvedBy),()=>undefined)},
+    async createLidarBcfTopic(scanId:string,input:Omit<LidarBcfTopic,'id'|'scanSessionId'|'status'|'createdAt'>){if(!api)return undefined;return remote(()=>api.createLidarBcfTopic(scanId,input),()=>undefined)},
+    async publishLidarAsBuilt(scanId:string,createdBy:string){if(!api)return undefined;return remote(()=>api.publishLidarAsBuilt(scanId,createdBy),()=>undefined)},
     async updateDailyReport(reportId: string, input: DailyReportInput) {
       if (api) {
         await remote(() => api.updateDailyReport(reportId, input), report => setState(current => ({ ...current, dailyReports: current.dailyReports.map(item => item.id === reportId ? report : item) })))

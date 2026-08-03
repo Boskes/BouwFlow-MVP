@@ -1,13 +1,16 @@
 import { Suspense, lazy, useMemo, useRef, useState } from 'react'
-import { Boxes, CalendarDays, CheckCircle2, Euro, FileCheck2, Filter, Layers3, ScanLine, Upload, X } from 'lucide-react'
+import { Boxes, CalendarDays, CheckCircle2, Euro, FileCheck2, Filter, Layers3, ScanLine, Smartphone, Upload, X } from 'lucide-react'
 import type { BimProgressEvidence, ProjectWorkPackage } from './domain'
 import { bimProgressExamples, bimProgressExampleById, type BimProgressElement } from './bim-progress-examples'
 import type { IfcViewerElement } from './BimIfcViewer'
+import type { LidarPersistence } from './LidarBimWorkspace'
 
 const BimIfcViewer = lazy(()=>import('./BimIfcViewer'))
 const FamilyHomeBimViewer = lazy(()=>import('./FamilyHomeBimViewer'))
+const LidarBimWorkspace = lazy(()=>import('./LidarBimWorkspace'))
 
 type Props = {
+  projectId:string; lidarPersistence?:LidarPersistence;
   workPackages:ProjectWorkPackage[]; initialWorkPackageId:string; previousPct:number; preparedBy:string;
   initialEvidence?:BimProgressEvidence;
   onApply:(workPackageId:string, progressPct:number, evidence:BimProgressEvidence)=>void; onClose:()=>void
@@ -15,7 +18,7 @@ type Props = {
 
 const number = (value:number) => new Intl.NumberFormat('nl-BE',{maximumFractionDigits:2}).format(value)
 
-export default function BimProgressDialog({workPackages,initialWorkPackageId,previousPct,preparedBy,initialEvidence,onApply,onClose}:Props) {
+export default function BimProgressDialog({projectId,lidarPersistence,workPackages,initialWorkPackageId,previousPct,preparedBy,initialEvidence,onApply,onClose}:Props) {
   const fileRef=useRef<HTMLInputElement>(null)
   const initialExample=bimProgressExampleById(initialEvidence?.modelId??bimProgressExamples[0].id)
   const [exampleId,setExampleId]=useState(initialExample.id)
@@ -35,6 +38,7 @@ export default function BimProgressDialog({workPackages,initialWorkPackageId,pre
   const [ifcFile,setIfcFile]=useState<File>()
   const [ifcElements,setIfcElements]=useState<IfcViewerElement[]>([])
   const [ifcProgress,setIfcProgress]=useState(0)
+  const [lidarOpen,setLidarOpen]=useState(false)
   const categories=useMemo(()=>[...new Set(elements.map(item=>item.category))].sort(),[elements])
   const storeys=useMemo(()=>[...new Set(elements.map(item=>item.storey))].sort(),[elements])
   const phases=useMemo(()=>[...new Set(elements.map(item=>item.phase))],[elements])
@@ -67,7 +71,7 @@ export default function BimProgressDialog({workPackages,initialWorkPackageId,pre
   }
   return <div className="modal-backdrop bim-progress-backdrop">
     <section className="modal bim-progress-dialog" aria-label="BIM-vordering opmaken">
-      <header className="modal-head"><div><p className="eyebrow">3D/4D/5D voortgangsmeting</p><h2>BIM-vordering samenstellen</h2><span>Selecteer in 3D, toets aan de 4D-planning en waardeer rechtstreeks vanuit het 5D-kostenmodel.</span></div><button className="icon-button" aria-label="Sluiten" onClick={onClose}><X size={20}/></button></header>
+      <header className="modal-head"><div><p className="eyebrow">3D/4D/5D voortgangsmeting</p><h2>BIM-vordering samenstellen</h2><span>Selecteer in 3D, toets aan de 4D-planning en waardeer rechtstreeks vanuit het 5D-kostenmodel.</span></div><button className="secondary bim-lidar-launch" onClick={()=>setLidarOpen(true)}><Smartphone size={15}/>iPhone LiDAR</button><button className="icon-button" aria-label="Sluiten" onClick={onClose}><X size={20}/></button></header>
       <div className="bim-progress-layout">
         <aside className="bim-progress-examples"><div className="bim-progress-title"><Layers3 size={17}/><div><strong>Professionele modellen</strong><small>Echte projectbron en klasse 8-voorbeelden</small></div></div>{bimProgressExamples.map(item=><button key={item.id} className={item.id===exampleId?'active':''} onClick={()=>loadExample(item.id)}><strong>{item.label}</strong><span>{item.projectType}</span><small>{item.elements.length} modelelementen · {item.discipline}</small></button>)}</aside>
         <main className="bim-progress-viewer">
@@ -104,5 +108,6 @@ export default function BimProgressDialog({workPackages,initialWorkPackageId,pre
         </aside>
       </div>
     </section>
+    {lidarOpen&&<Suspense fallback={null}><LidarBimWorkspace projectId={projectId} persistence={lidarPersistence} modelId={ifcFile?`ifc-${ifcFile.name}`:example.id} modelName={ifcFile?.name??example.modelName} modelVersion={modelVersion} elements={elements} workPackages={workPackages} initialWorkPackageId={workPackageId} actor={measuredBy||preparedBy} onClose={()=>setLidarOpen(false)} onApply={(nextWorkPackageId,progressPct,evidence)=>{setWorkPackageId(nextWorkPackageId);setCompletionPct(Math.max(previousPct,progressPct));setSelected(new Set(evidence.elementIds));setMeasuredBy(evidence.measuredBy);setNotes(evidence.notes);setValidated(evidence.status==='Gecontroleerd');onApply(nextWorkPackageId,Math.max(previousPct,progressPct),evidence);setLidarOpen(false)}}/></Suspense>}
   </div>
 }

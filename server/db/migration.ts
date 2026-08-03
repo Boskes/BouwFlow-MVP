@@ -1094,6 +1094,18 @@ ALTER TABLE blueprint_state ADD COLUMN IF NOT EXISTS time_entries jsonb NOT NULL
 ALTER TABLE blueprint_state ADD COLUMN IF NOT EXISTS project_claims jsonb NOT NULL DEFAULT '[]';
 ALTER TABLE blueprint_state ADD COLUMN IF NOT EXISTS workflow_definitions jsonb NOT NULL DEFAULT '[]';
 
+CREATE TABLE IF NOT EXISTS lidar_scan_sessions (
+  tenant_id uuid NOT NULL REFERENCES tenants(id),
+  id uuid NOT NULL,
+  project_id uuid NOT NULL,
+  session_data jsonb NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (tenant_id,id),
+  FOREIGN KEY (tenant_id,project_id) REFERENCES projects(tenant_id,id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_lidar_scans_project ON lidar_scan_sessions(tenant_id,project_id,updated_at DESC);
+
 CREATE TABLE IF NOT EXISTS checkinatwork_state (
   tenant_id uuid PRIMARY KEY REFERENCES tenants(id),
   sites jsonb NOT NULL DEFAULT '[]',
