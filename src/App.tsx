@@ -4340,6 +4340,7 @@ function BimCalculationWorkspace({ calculation, actions, onClose, onAdded }: { c
   const [storeyFilter,setStoreyFilter] = useState<BimModelElement["storey"]|"Alle">("Alle");
   const [ifcFile,setIfcFile] = useState<File>();
   const [ifcElements,setIfcElements] = useState<IfcViewerElement[]>([]);
+  const [ifcError,setIfcError] = useState<string>();
   const [ifcProgress,setIfcProgress] = useState(0);
   const [viewerCommand,setViewerCommand] = useState<IfcViewerCommand>();
   const [query,setQuery] = useState("");
@@ -4354,7 +4355,7 @@ function BimCalculationWorkspace({ calculation, actions, onClose, onAdded }: { c
   const activeElements = useMemo<BimModelElement[]>(() => ifcElements.length ? ifcElements.map(element => {
     const category = bimCategories.includes(element.category as BimElementCategory) ? element.category as BimElementCategory : "Overig";
     return { id:String(element.expressId),ifcType:element.typeName,label:element.name,category,storey:element.storey,quantity:element.quantity,unit:element.unit,unitCost:bimUnitCosts[category],x:0,y:0,width:0,height:0,shape:"wall",warning:element.warning,globalId:element.globalId,quantitySource:element.quantitySource };
-  }) : isFamilyHome?familyHomeCalculationElements:bimDemoElements,[ifcElements,isFamilyHome]);
+  }) : ifcFile ? [] : isFamilyHome?familyHomeCalculationElements:bimDemoElements,[ifcElements,ifcFile,isFamilyHome]);
   const availableStoreys = useMemo(()=>[...new Set(activeElements.map(element=>element.storey))].sort(),[activeElements]);
   const visibleElements = activeElements.filter(element => (categoryFilter === "Alle" || element.category === categoryFilter) && (storeyFilter === "Alle" || element.storey === storeyFilter) && `${element.label} ${element.ifcType}`.toLocaleLowerCase().includes(query.toLocaleLowerCase()));
   const selectedElements = activeElements.filter(element => selectedIds.has(element.id));
@@ -4390,6 +4391,7 @@ function BimCalculationWorkspace({ calculation, actions, onClose, onAdded }: { c
     setIsImporting(true);
     setIfcProgress(1);
     setIfcElements([]);
+    setIfcError(undefined);
     setIfcFile(file);
     setModelName(file.name);
     setModelFormat("WebIFC · geometrie wordt verwerkt");
@@ -4498,7 +4500,7 @@ function BimCalculationWorkspace({ calculation, actions, onClose, onAdded }: { c
             const selected=elements.filter(element=>selectedIds.has(element.id)).length;
             return <button className={`bim-layer-row ${categoryFilter===category?"active":""}`} key={category} onClick={()=>{setCategoryFilter(category);selectGroup(elements)}}><span><i className={`bim-layer-dot category-${category.toLocaleLowerCase()}`}></i><strong>{category}</strong><small>{elements[0]?.ifcType}</small></span><em>{selected?`${selected}/${elements.length}`:elements.length}</em></button>;
           })}
-          <div className="bim-model-health"><span><CheckCircle2 size={16}/><strong>{ifcFile?"WebIFC geometrie actief":"Demomodel actief"}</strong></span><small>{activeElements.length} objecten hebben geometrie en een calculatieclassificatie.</small><button onClick={()=>setCategoryFilter("Alle")}><AlertTriangle size={14}/>{activeElements.filter(element=>element.warning).length} hoeveelheden te controleren</button></div>
+          <div className={`bim-model-health ${ifcError?"error":""}`}><span>{ifcError?<AlertTriangle size={16}/>:<CheckCircle2 size={16}/>}<strong>{ifcError?"IFC geometrie niet geladen":ifcFile?(isImporting?"WebIFC geometrie laden":"WebIFC geometrie actief"):"Demomodel actief"}</strong></span><small>{ifcError?ifcError:`${activeElements.length} objecten hebben geometrie en een calculatieclassificatie.`}</small><button onClick={()=>setCategoryFilter("Alle")}><AlertTriangle size={14}/>{activeElements.filter(element=>element.warning).length} hoeveelheden te controleren</button></div>
         </aside>
         <main className="bim-viewer-panel">
           <div className="bim-viewer-status"><span><i></i>{dimension==='3D'?'3D-model':dimension==='4D'?`4D · ${activePhase.label}`:'5D-kostenmodel'}</span><span>{visibleElements.filter(visibleByTimeline).length} gepland/gebouwd</span><span>{selectedIds.size} geselecteerd</span></div>
@@ -4512,8 +4514,8 @@ function BimCalculationWorkspace({ calculation, actions, onClose, onAdded }: { c
               command={viewerCommand}
               onSelectionChange={ids=>{setSelectedIds(new Set([...ids].map(String)));setNotice(ids.size?`${ids.size} IFC-object${ids.size===1?"":"en"} geselecteerd.`:"Selectie gewist.")}}
               onProgress={(progress,message)=>{setIfcProgress(progress);setNotice(message)}}
-              onError={message=>{setIsImporting(false);setNotice(message);setModelFormat("IFC · laden mislukt")}}
-              onModelLoaded={report=>{setIfcElements(report.elements);setImportCount(report.elementCount);setModelFormat(`${report.schema} · WebIFC · ${number(report.triangleCount)} driehoeken`);setIsImporting(false);setNotice(`${report.elementCount} echte IFC-objecten zijn grafisch en calculatief gekoppeld.`)}}
+              onError={message=>{setIfcError(message);setIfcElements([]);setImportCount(0);setIsImporting(false);setNotice(message);setModelFormat("IFC · laden mislukt")}}
+              onModelLoaded={report=>{setIfcError(undefined);setIfcElements(report.elements);setImportCount(report.elementCount);setModelFormat(`${report.schema} · WebIFC · ${number(report.triangleCount)} driehoeken`);setIsImporting(false);setNotice(`${report.elementCount} echte IFC-objecten zijn grafisch en calculatief gekoppeld.`)}}
             /></Suspense> : isFamilyHome ? <Suspense fallback={<div className="bim-ifc-loading"><span></span><strong>Woningmodel laden…</strong></div>}><FamilyHomeBimViewer elements={visibleElements} selectedIds={selectedIds} dimension={dimension} elementState={element=>timelineState(element as BimModelElement)} onToggle={(id,additive)=>{const element=visibleElements.find(item=>item.id===id);if(element)toggleElement(element,additive)}}/></Suspense> : visibleElements.map(element=><button
               type="button"
               key={element.id}
@@ -4523,6 +4525,7 @@ function BimCalculationWorkspace({ calculation, actions, onClose, onAdded }: { c
               onClick={event=>toggleElement(element,event.shiftKey||event.ctrlKey||event.metaKey)}
             ><span>{selectedIds.has(element.id)&&<CheckCircle2 size={14}/>}</span></button>)}
             {ifcFile&&isImporting&&<div className="bim-ifc-progress"><span style={{width:`${ifcProgress}%`}}></span><strong>{ifcProgress}%</strong></div>}
+            {ifcFile&&ifcError&&!isImporting&&<div className="bim-ifc-error"><AlertTriangle size={24}/><strong>IFC-model kon niet worden weergegeven</strong><span>{ifcError}</span><button type="button" className="secondary" onClick={()=>fileInputRef.current?.click()}>Ander IFC-model kiezen</button></div>}
             <div className="bim-orientation"><span>N</span><i></i></div>
             <div className="bim-selection-hint">{dimension==='3D'?'Klik = selecteer · Shift + klik = meervoudig · dubbelklik = zichtbare selectie':dimension==='4D'?`Oranje = ${activePhase.label} · groen = uitgevoerd · transparant = toekomst`:'Kleurintensiteit = directe 5D-kost · selecteer voor detail'}</div>
           </div>

@@ -1,7 +1,7 @@
 import { useEffect, useRef, type PointerEvent as ReactPointerEvent } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
-import { IfcAPI, LogLevel, type FlatMesh } from "web-ifc";
+import { IfcAPI, type FlatMesh } from "web-ifc";
 import webIfcWasmUrl from "web-ifc/web-ifc.wasm?url";
 
 export type IfcViewerElement = {
@@ -55,6 +55,8 @@ const categoryForType = (typeName: string) => {
   return "Overig";
 };
 
+const isNonPhysicalIfcType = (typeName: string) => /IFC(SPATIALZONE|SPACE|OPENINGELEMENT|VIRTUALELEMENT)/.test(typeName.toLocaleUpperCase());
+
 const quantityFromBounds = (category: string, bounds: THREE.Box3) => {
   const size = bounds.getSize(new THREE.Vector3());
   const dimensions = [Math.abs(size.x), Math.abs(size.y), Math.abs(size.z)].sort((left, right) => right - left);
@@ -80,6 +82,11 @@ const disposeObject = (object: THREE.Object3D) => {
     const materials = Array.isArray(child.material) ? child.material : [child.material];
     materials.forEach(material => material.dispose());
   });
+};
+
+const releaseWasmObject = (value: unknown) => {
+  const deleteHandle = (value as { delete?: unknown } | undefined)?.delete;
+  if (typeof deleteHandle === "function") deleteHandle.call(value);
 };
 
 export default function BimIfcViewer({ file, selectedExpressIds, visibleExpressIds, command, onSelectionChange, onModelLoaded, onProgress, onError }: Props) {
@@ -161,11 +168,19 @@ export default function BimIfcViewer({ file, selectedExpressIds, visibleExpressI
     resize();
 
     const fit = (view: IfcViewerCommand["type"] = "fit") => {
-      const bounds = new THREE.Box3().setFromObject(modelRoot);
+      const visibleGroups = [...groups.values()].filter(group => group.visible);
+      const primaryGroups = visibleGroups.filter(group => group.userData.category && group.userData.category !== "Overig");
+      const fitGroups = primaryGroups.length ? primaryGroups : visibleGroups;
+      const bounds = new THREE.Box3();
+      fitGroups.forEach(group => bounds.expandByObject(group, true));
       if (bounds.isEmpty()) return;
       const center = bounds.getCenter(new THREE.Vector3());
       const size = bounds.getSize(new THREE.Vector3());
-      const distance = Math.max(size.x, size.y, size.z, 1) * 1.55;
+      if (![center.x, center.y, center.z, size.x, size.y, size.z].every(Number.isFinite)) return;
+      const radius = Math.max(size.length() / 2, 1);
+      const verticalFov = THREE.MathUtils.degToRad(camera.fov);
+      const horizontalFov = 2 * Math.atan(Math.tan(verticalFov / 2) * Math.max(camera.aspect, .1));
+      const distance = radius / Math.sin(Math.min(verticalFov, horizontalFov) / 2) * 1.15;
       const directions: Record<IfcViewerCommand["type"], THREE.Vector3> = {
         fit: new THREE.Vector3(1, .8, 1), top: new THREE.Vector3(0, 1, .001), front: new THREE.Vector3(0, .18, 1), right: new THREE.Vector3(1, .18, 0),
       };
@@ -174,6 +189,7 @@ export default function BimIfcViewer({ file, selectedExpressIds, visibleExpressI
       camera.far = distance * 100;
       camera.updateProjectionMatrix();
       controls.target.copy(center);
+      controls.maxDistance = distance * 20;
       controls.update();
       grid.position.y = bounds.min.y - Math.max(size.y * .015, .01);
       grid.scale.setScalar(Math.max(size.x, size.z, 1) / 100);
@@ -214,7 +230,6 @@ export default function BimIfcViewer({ file, selectedExpressIds, visibleExpressI
       try {
         callbacksRef.current.onProgress(2, "WebIFC-engine starten…");
         ifcApi = new IfcAPI();
-        ifcApi.SetLogLevel(LogLevel.LOG_LEVEL_ERROR);
         await ifcApi.Init(path => path.endsWith(".wasm") ? webIfcWasmUrl : path, true);
         if (disposed) return;
         callbacksRef.current.onProgress(8, "IFC-bestand openen…");
@@ -241,16 +256,17 @@ export default function BimIfcViewer({ file, selectedExpressIds, visibleExpressI
         let streamed = 0;
         const totalHint = Math.max(1, ifcApi.GetMaxExpressID(modelId));
         ifcApi.StreamAllMeshes(modelId,(flatMesh:FlatMesh,index,total) => {
-          if (disposed || !ifcApi) { flatMesh.delete(); return; }
+          if (disposed || !ifcApi) { releaseWasmObject(flatMesh); return; }
           const group = new THREE.Group();
           group.userData.expressId = flatMesh.expressID;
           group.name = `IFC #${flatMesh.expressID}`;
+          let groupTriangleCount = 0;
           for (let geometryIndex=0;geometryIndex<flatMesh.geometries.size();geometryIndex+=1) {
             const placed = flatMesh.geometries.get(geometryIndex);
             const raw = ifcApi.GetGeometry(modelId,placed.geometryExpressID);
             const vertices = new Float32Array(ifcApi.GetVertexArray(raw.GetVertexData(),raw.GetVertexDataSize()));
             const indices = new Uint32Array(ifcApi.GetIndexArray(raw.GetIndexData(),raw.GetIndexDataSize()));
-            raw.delete();
+            releaseWasmObject(raw);
             const positions = new Float32Array((vertices.length/6)*3);
             const normals = new Float32Array((vertices.length/6)*3);
             for (let source=0,target=0;source<vertices.length;source+=6,target+=3) {
@@ -273,12 +289,14 @@ export default function BimIfcViewer({ file, selectedExpressIds, visibleExpressI
             mesh.receiveShadow = true;
             mesh.userData.expressId = flatMesh.expressID;
             group.add(mesh);
-            triangleCount += Math.floor(indices.length/3);
+            groupTriangleCount += Math.floor(indices.length/3);
           }
-          flatMesh.delete();
+          releaseWasmObject(flatMesh);
           if (group.children.length) {
+            group.userData.triangleCount = groupTriangleCount;
             modelRoot.add(group);
             groups.set(group.userData.expressId as number,group);
+            triangleCount += groupTriangleCount;
           }
           streamed += 1;
           if (index % 25 === 0 || index === total-1) callbacksRef.current.onProgress(10+Math.round((index/Math.max(total-1,1))*73),`Geometrie opbouwen · ${index+1}/${total}`);
@@ -288,6 +306,7 @@ export default function BimIfcViewer({ file, selectedExpressIds, visibleExpressI
         modelRoot.updateMatrixWorld(true);
         callbacksRef.current.onProgress(86,"Objecteigenschappen koppelen…");
         const elements: IfcViewerElement[] = [];
+        const nonPhysicalIds: number[] = [];
         groups.forEach((group,expressId) => {
           let typeName = "IFCBUILDINGELEMENTPROXY";
           let line: Record<string,unknown> | undefined;
@@ -296,7 +315,12 @@ export default function BimIfcViewer({ file, selectedExpressIds, visibleExpressI
             typeName = typeNames.get(typeCode) ?? ifcApi?.GetNameFromTypeCode(typeCode) ?? typeName;
             line = ifcApi?.GetLine(modelId,expressId,false,false) as Record<string,unknown>;
           } catch { /* Geometrie blijft selecteerbaar wanneer eigenschappen ontbreken. */ }
+          if (isNonPhysicalIfcType(typeName)) {
+            nonPhysicalIds.push(expressId);
+            return;
+          }
           const category = categoryForType(typeName);
+          group.userData.category = category;
           const measured = quantityFromBounds(category,new THREE.Box3().setFromObject(group));
           elements.push({
             expressId,
@@ -311,6 +335,15 @@ export default function BimIfcViewer({ file, selectedExpressIds, visibleExpressI
             warning:["Wanden","Vloeren","Daken","Kolommen","Balken"].includes(category) ? "Hoeveelheid geometrisch afgeleid; controleer officiële QTO-eigenschappen." : undefined,
           });
         });
+        nonPhysicalIds.forEach(expressId => {
+          const group = groups.get(expressId);
+          if (!group) return;
+          triangleCount -= Number(group.userData.triangleCount ?? 0);
+          modelRoot.remove(group);
+          disposeObject(group);
+          groups.delete(expressId);
+        });
+        modelRoot.updateMatrixWorld(true);
         fit("fit");
         callbacksRef.current.onProgress(100,`${streamed} IFC-objecten geladen`);
         callbacksRef.current.onModelLoaded({ schema,elementCount:elements.length,triangleCount,elements });
