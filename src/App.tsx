@@ -80,6 +80,7 @@ import "./App.css";
 import BelgianAddressAutocomplete from "./BelgianAddressAutocomplete";
 import type { DossierEmailContext } from './DossierEmailTab'
 import type { ContractWorkspaceDialog } from './ContractWorkspaceDialogs'
+import type { ModuleWorkspaceItem } from './ModuleWorkspaceTabs'
 
 const FormulaBuilderDialog = lazy(() => import('./FormulaBuilderDialog'))
 const BoqItemAdvancedDialog = lazy(() => import('./FormulaBuilderDialog').then(module => ({ default: module.BoqItemAdvancedDialog })))
@@ -92,6 +93,8 @@ const DossierEmailTab = lazy(() => import('./DossierEmailTab'))
 const ContractPriceRevisionPanel = lazy(() => import('./PriceRevisionFlow').then(module => ({ default: module.ContractPriceRevisionPanel })))
 const ProgressPriceRevisionPanel = lazy(() => import('./PriceRevisionFlow').then(module => ({ default: module.ProgressPriceRevisionPanel })))
 const ContractWorkspaceDialogs = lazy(() => import('./ContractWorkspaceDialogs'))
+const ModuleWorkspaceTabs = lazy(() => import('./ModuleWorkspaceTabs'))
+const WorkspaceWindowButton = lazy(() => import('./WorkspaceWindowButton'))
 import type { IfcViewerCommand, IfcViewerElement } from "./BimIfcViewer";
 import {
   autoSchedulePlanningActivities,
@@ -360,26 +363,49 @@ function HrEmployeeSelect({
   const activeEmployees = employees.filter((employee) => employee.active);
   const linkedEmployee = activeEmployees.find((employee) => employee.id === value)
     ?? employeeByName(activeEmployees, fallbackName);
+  const suggestionListId = useRef(`employee-suggestions-${createId()}`);
+  const linkedName = linkedEmployee ? employeeFullName(linkedEmployee) : fallbackName ?? "";
+  const [searchValue, setSearchValue] = useState(linkedName);
+  useEffect(() => setSearchValue(linkedName), [linkedName]);
+  const exactEmployee = (text: string) => activeEmployees.find(
+    (employee) => employeeFullName(employee).toLocaleLowerCase() === text.trim().toLocaleLowerCase(),
+  );
   return (
-    <select
-      aria-label={ariaLabel}
-      required={required}
-      value={linkedEmployee?.id ?? ""}
-      onChange={(event) =>
-        onChange(activeEmployees.find((employee) => employee.id === event.target.value))
-      }
-    >
-      <option value="">
-        {fallbackName && !linkedEmployee
-          ? `${fallbackName} (niet gekoppeld)`
-          : placeholder}
-      </option>
-      {activeEmployees.map((employee) => (
-        <option key={employee.id} value={employee.id}>
-          {employeeFullName(employee)} · {employee.role}
-        </option>
-      ))}
-    </select>
+    <span className="employee-autocomplete">
+      <Search size={14}/>
+      <input
+        type="text"
+        list={suggestionListId.current}
+        aria-label={ariaLabel}
+        autoComplete="off"
+        required={required}
+        placeholder={fallbackName && !linkedEmployee ? `${fallbackName} (niet gekoppeld)` : placeholder}
+        value={searchValue}
+        onChange={(event) => {
+          const next = event.target.value;
+          setSearchValue(next);
+          const exact = exactEmployee(next);
+          if (exact) onChange(exact);
+          else if (!next.trim()) onChange(undefined);
+        }}
+        onBlur={() => {
+          const exact = exactEmployee(searchValue);
+          if (exact) {
+            setSearchValue(employeeFullName(exact));
+            onChange(exact);
+          } else {
+            setSearchValue(linkedName);
+            if (!linkedName) onChange(undefined);
+          }
+        }}
+      />
+      <ChevronDown size={13}/>
+      <datalist id={suggestionListId.current}>
+        {activeEmployees.map((employee) => (
+          <option key={employee.id} value={employeeFullName(employee)} label={employee.role}/>
+        ))}
+      </datalist>
+    </span>
   );
 }
 
@@ -2376,7 +2402,9 @@ function App() {
   const [opportunityFormOpen, setOpportunityFormOpen] = useState(false);
   const [editingOpportunityId, setEditingOpportunityId] = useState<string>();
   const [goNoGoOpportunityId, setGoNoGoOpportunityId] = useState<string>();
-  const [selectedCalculationId, setSelectedCalculationId] = useState<string>();
+  const [selectedCalculationId, setSelectedCalculationId] = useState<string | undefined>(() =>
+    typeof window === "undefined" ? undefined : new URLSearchParams(window.location.search).get("calculation") ?? undefined,
+  );
   const [selectedCashFlowInvoiceId, setSelectedCashFlowInvoiceId] = useState<string>();
   const [legalEntityFilter, setLegalEntityFilter] = useState("");
   const [branchFilter, setBranchFilter] = useState("");
@@ -2406,6 +2434,16 @@ function App() {
   );
   const currentCompanyUser = presentationState.companyUsers.find((item) => item.id === presentationState.currentUserId);
   const visibleNav = nav.filter((item) => canAccessPage(currentCompanyUser?.role, item.id));
+  const activeNavigationGroup = navigationGroups.find((group) => group.pageIds.includes(page));
+  const moduleWorkspaceGroup = activeNavigationGroup ?? {
+    id: "start",
+    label: "Start",
+    icon: LayoutDashboard,
+    pageIds: ["dashboard", "dossiers"] as Page[],
+  };
+  const moduleWorkspaceItems = moduleWorkspaceGroup.pageIds
+    .map((id) => visibleNav.find((item) => item.id === id))
+    .filter(Boolean) as ModuleWorkspaceItem[];
   const pageAllowed = canAccessPage(currentCompanyUser?.role, page) || canExternalAccessDossier(presentationState,currentCompanyUser,route.dossierType,route.dossierId);
   const roleHomePage: Page = currentCompanyUser?.role === "Klant" ? "client-portal" : currentCompanyUser?.role === "Onderaannemer" ? "subcontractor-portal" : currentCompanyUser?.role === "Leverancier" ? "supplier-portal" : "dashboard";
   const demoAdministrator = state.companyUsers.find((item) => item.role === "Administrator" && item.status !== "Geblokkeerd");
@@ -2545,6 +2583,7 @@ function App() {
             title={sidebarCollapsed ? "Modulepaneel uitklappen" : "Modulepaneel inklappen"}
           >
             {sidebarCollapsed ? <PanelLeftOpen size={16}/> : <PanelLeftClose size={16}/>}
+            <span>{sidebarCollapsed ? "Modules tonen" : "Modules verbergen"}</span>
           </button>
           <button
             className="mobile-close"
@@ -2704,6 +2743,16 @@ function App() {
               void actions.retry();
             }}
           />
+          {!route.dossierType && moduleWorkspaceItems.length > 0 && (
+            <Suspense fallback={null}>
+              <ModuleWorkspaceTabs
+                groupLabel={moduleWorkspaceGroup.label}
+                items={moduleWorkspaceItems}
+                activePage={page}
+                onNavigate={setPage}
+              />
+            </Suspense>
+          )}
           {initialApiLoad ? <section className="panel dossier-not-found"><RotateCcw size={34}/><h2>Werkruimte voorbereiden</h2><p>De centrale gegevens en jouw rechten worden geladen. De pagina wordt daarna automatisch geopend.</p></section> : !pageAllowed ? <section className="panel dossier-not-found"><ShieldCheck size={34}/><h2>Geen toegang tot deze module</h2><p>Je rol bevat geen rechten voor deze werkruimte.</p><button className="primary" onClick={() => setPage(roleHomePage)}>Naar startscherm</button></section> : route.dossierType && route.dossierId ? (
             <DossierWorkspace
               route={route}
@@ -3124,7 +3173,7 @@ function CrmRelationshipWorkspace({ state, actions }: { state: BouwFlowState; ac
         <input required placeholder="Onderwerp" value={activity.subject} onChange={(event) => setActivity({ ...activity, subject: event.target.value })} />
         <input required type="datetime-local" onChange={(event) => setActivity({ ...activity, startsAt: new Date(event.target.value).toISOString() })} />
         <select value={activity.contactId ?? ""} onChange={(event) => setActivity({ ...activity, contactId: event.target.value || undefined })}><option value="">Geen specifieke contactpersoon</option>{organizationContacts(organization).map((contact) => <option key={contact.id} value={contact.id}>{contact.firstName} {contact.lastName}</option>)}</select>
-        <select value={activity.ownerEmployeeId ?? ""} onChange={(event) => { const employee = state.employees.find((item) => item.id === event.target.value); setActivity({ ...activity, ownerEmployeeId: employee?.id, createdBy: employee ? employeeFullName(employee) : "CRM" }); }}><option value="">Nog geen eigenaar</option>{state.employees.filter((item) => item.active).map((employee) => <option key={employee.id} value={employee.id}>{employeeFullName(employee)} · {employee.role}</option>)}</select>
+        <HrEmployeeSelect employees={state.employees} value={activity.ownerEmployeeId} ariaLabel="Eigenaar van de CRM-activiteit" placeholder="Zoek een eigenaar in HR" onChange={(employee) => setActivity({ ...activity, ownerEmployeeId: employee?.id, createdBy: employee ? employeeFullName(employee) : "CRM" })}/>
         <textarea placeholder="Notities" value={activity.notes} onChange={(event) => setActivity({ ...activity, notes: event.target.value })} /><button className="primary"><Plus size={14} />Activiteit toevoegen</button>
       </form><div className="enterprise-list">{(organization.activities ?? []).map((item) => <article key={item.id}><CalendarClock size={16} /><div><strong>{item.subject}</strong><span>{item.type} · {new Date(item.startsAt).toLocaleString("nl-BE")} · {item.createdBy}</span><small>{item.notes}</small></div><Badge text={item.status} /></article>)}</div></div>
       <div><h3>Relaties tussen ondernemingen</h3><form className="stacked-enterprise-form" onSubmit={(event) => { event.preventDefault(); if (!relation.relatedOrganizationId) return; void actions.addOrganizationRelation(organization.id, relation); setRelation({ ...relation, relatedOrganizationId: "", notes: "" }); }}>
@@ -3654,7 +3703,7 @@ function TenderWorkspace({ state, actions, onOpenDossier }: { state: BouwFlowSta
   };
   return <section className="panel tender-workspace"><PanelHead eyebrow="Volwaardig tenderdossier" title="Selectie, bewijsstukken, vragen en deadlines" />
     <div className="tender-toolbar"><select value={opportunityId} onChange={(event) => setOpportunityId(event.target.value)}>{state.opportunities.map((item) => <option key={item.id} value={item.id}>{item.projectNumber} · {item.title}</option>)}</select>{opportunity && <button className="secondary" onClick={() => onOpenDossier("opportunity", opportunity.id)}><Eye size={14} />Dossier openen</button>}<Badge text={current?.approvedAt ? "Goedgekeurd" : current ? "In opmaak" : "Nog op te starten"} /></div>
-    {opportunity && <div className="tender-grid"><div><label>Selectievoorwaarden<textarea value={conditions} placeholder="Eén voorwaarde per regel" onChange={(event) => setConditions(event.target.value)} /></label><label>Bekende concurrenten<textarea value={competitors} placeholder="Eén onderneming per regel" onChange={(event) => setCompetitors(event.target.value)} /></label><div className="tender-weight"><label>Prijs %<input type="number" min="0" max="100" value={weights.price} onChange={(event) => setWeights({ price: Number(event.target.value), quality: 100 - Number(event.target.value) })} /></label><label>Kwaliteit %<input readOnly value={weights.quality} /></label></div></div><div><h3>Bestek, plannen en attesten</h3><div className="tender-document-list">{projectDocuments.map((document) => <label key={document.id}><input type="checkbox" checked={documents.includes(document.id)} onChange={(event) => setDocuments(event.target.checked ? [...documents, document.id] : documents.filter((id) => id !== document.id))} />{document.title}<Badge text={document.status} /></label>)}{!projectDocuments.length && <span>Koppel documenten vanuit Documentbeheer aan deze opportuniteit.</span>}</div><label>Nieuwe vraag<input value={question} placeholder="Vraag aan de aanbestedende overheid" onChange={(event) => setQuestion(event.target.value)} /></label><div className="tender-visit"><input type="datetime-local" value={visitAt} onChange={(event) => setVisitAt(event.target.value)} /><input value={visitLocation} placeholder="Plaatsbezoek locatie" onChange={(event) => setVisitLocation(event.target.value)} /></div><label>Interne goedkeuring<input value={approvedBy} placeholder="Naam tenderdirecteur" onChange={(event) => setApprovedBy(event.target.value)} /></label><button className="primary" onClick={save}><FileCheck2 size={15} />Tenderdossier opslaan</button></div></div>}
+    {opportunity && <div className="tender-grid"><div><label>Selectievoorwaarden<textarea value={conditions} placeholder="Eén voorwaarde per regel" onChange={(event) => setConditions(event.target.value)} /></label><label>Bekende concurrenten<textarea value={competitors} placeholder="Eén onderneming per regel" onChange={(event) => setCompetitors(event.target.value)} /></label><div className="tender-weight"><label>Prijs %<input type="number" min="0" max="100" value={weights.price} onChange={(event) => setWeights({ price: Number(event.target.value), quality: 100 - Number(event.target.value) })} /></label><label>Kwaliteit %<input readOnly value={weights.quality} /></label></div></div><div><h3>Bestek, plannen en attesten</h3><div className="tender-document-list">{projectDocuments.map((document) => <label key={document.id}><input type="checkbox" checked={documents.includes(document.id)} onChange={(event) => setDocuments(event.target.checked ? [...documents, document.id] : documents.filter((id) => id !== document.id))} />{document.title}<Badge text={document.status} /></label>)}{!projectDocuments.length && <span>Koppel documenten vanuit Documentbeheer aan deze opportuniteit.</span>}</div><label>Nieuwe vraag<input value={question} placeholder="Vraag aan de aanbestedende overheid" onChange={(event) => setQuestion(event.target.value)} /></label><div className="tender-visit"><input type="datetime-local" value={visitAt} onChange={(event) => setVisitAt(event.target.value)} /><input value={visitLocation} placeholder="Plaatsbezoek locatie" onChange={(event) => setVisitLocation(event.target.value)} /></div><label>Interne goedkeuring<HrEmployeeSelect employees={state.employees} fallbackName={approvedBy} ariaLabel="Tenderdirecteur voor interne goedkeuring" placeholder="Zoek de tenderdirecteur" onChange={(employee) => setApprovedBy(employee ? employeeFullName(employee) : "")}/></label><button className="primary" onClick={save}><FileCheck2 size={15} />Tenderdossier opslaan</button></div></div>}
     {current && <div className="enterprise-list tender-events">{current.questions.map((item) => <article key={item.id}><ClipboardList size={16} /><div><strong>{item.question}</strong><span>{item.answer || "Antwoord nog open"}</span></div><Badge text={item.status} /></article>)}{current.siteVisits.map((item) => <article key={item.id}><CalendarClock size={16} /><div><strong>{item.location}</strong><span>{new Date(item.scheduledAt).toLocaleString("nl-BE")} · {item.mandatory ? "verplicht" : "optioneel"}</span></div><Badge text={item.completedAt ? "Voltooid" : "Gepland"} /></article>)}</div>}
   </section>;
 }
@@ -3748,7 +3797,9 @@ function Calculations({
   const [importOpen, setImportOpen] = useState(false);
   const [templateOpen, setTemplateOpen] = useState(false);
   const [quoteOpen, setQuoteOpen] = useState(false);
-  const [bimOpen, setBimOpen] = useState(false);
+  const [bimOpen, setBimOpen] = useState(() =>
+    typeof window !== "undefined" && new URLSearchParams(window.location.search).get("bim") === "1",
+  );
   const [previewQuote, setPreviewQuote] = useState<Quote>();
   const [boqClipboard,setBoqClipboard]=useState<{sourceCalculationId:string;items:BoqItem[]} >({sourceCalculationId:'',items:[]});
   const calculation =
@@ -3885,6 +3936,7 @@ function Calculations({
         <button type="button" className="secondary" onClick={() => setScreen("overview")}><ArrowDownLeft size={15}/>Alle calculaties</button>
         <span>Werkruimte · {calculation.number}</span>
         <small><CheckCircle2 size={13}/>Automatisch opgeslagen · {date(calculation.updatedAt)}</small>
+        <Suspense fallback={null}><WorkspaceWindowButton page="calculations" parameters={{ calculation: calculation.id }} className="secondary">Calculatie in nieuw venster</WorkspaceWindowButton></Suspense>
         {sourcesCollapsed && (
           <button type="button" className="secondary workbench-source-toggle" aria-controls="calculation-source-panel" aria-expanded="false" onClick={() => setSourcesCollapsed(false)}>
             <PanelLeftOpen size={15}/>Bronnen tonen
@@ -4408,6 +4460,7 @@ function BimCalculationWorkspace({ calculation, actions, onClose, onAdded }: { c
         <div><p className="eyebrow">3D / 4D / 5D BIM-calculatie</p><h2>{modelName}</h2><span>{modelFormat} · {number(importCount)} objecten · gekoppeld aan {calculation.number}</span></div>
         <div className="bim-header-actions">
           <input ref={fileInputRef} type="file" hidden accept=".ifc" onChange={event=>void importModel(event.target.files?.[0])}/>
+          <Suspense fallback={null}><WorkspaceWindowButton page="calculations" parameters={{ calculation: calculation.id, bim: "1" }} className="secondary">Nieuw venster</WorkspaceWindowButton></Suspense>
           <details className="bim-testdata-menu">
             <summary><Download size={15}/>IFC-testdata</summary>
             <div>
@@ -6362,6 +6415,18 @@ function PlanningPortfolio({
 }) {
   const [editing, setEditing] = useState<Project>();
   const [focusActivityIds, setFocusActivityIds] = useState<string[]>([]);
+  const deepLinkHandled = useRef(false);
+  useEffect(() => {
+    if (deepLinkHandled.current || typeof window === "undefined") return;
+    const parameters = new URLSearchParams(window.location.search);
+    const projectId = parameters.get("ganttProject");
+    if (!projectId) return;
+    const project = state.projects.find((item) => item.id === projectId);
+    if (!project) return;
+    deepLinkHandled.current = true;
+    setFocusActivityIds(parameters.get("activities")?.split(",").filter(Boolean) ?? []);
+    setEditing(project);
+  }, [state.projects]);
   const projects = state.projects.filter((project) => project.planning.activities.length);
   const conflicts = planningConflicts(projects, state.employees, state.employeeAbsences, state.employeeCrews);
   const activities = projects.flatMap((project) => {
@@ -7361,6 +7426,11 @@ function ProjectPlanningDialog({
                 ? ` · B${project.planning.baselineVersion}`
                 : ""}
             </span>
+            <Suspense fallback={null}><WorkspaceWindowButton
+              page="planning"
+              parameters={{ ganttProject: project.id, ...(focusActivityIds.length ? { activities: focusActivityIds.join(",") } : {}) }}
+              className="secondary planning-window-button"
+            >Open in nieuw venster</WorkspaceWindowButton></Suspense>
             <button
               type="button"
               className="icon-button"
@@ -7770,18 +7840,16 @@ function ProjectPlanningDialog({
                             </div>
                           </td>
                           <td>
-                            <select
-                              value={activity.responsibleEmployeeId ?? ""}
-                              onChange={(event) => {
-                                const employee = employees.find(item => item.id === event.target.value);
-                                updateActivity(activity.id, employee
-                                  ? { responsibleEmployeeId: employee.id, responsible: `${employee.firstName} ${employee.lastName}` }
-                                  : { responsibleEmployeeId: undefined, responsible: "" });
-                              }}
-                            >
-                              <option value="">{activity.responsible ? `${activity.responsible} (niet gekoppeld)` : "Selecteer uit HR"}</option>
-                              {employees.filter(item => item.active).map(item => <option key={item.id} value={item.id}>{item.firstName} {item.lastName} · {item.role} · {item.employmentPct}%</option>)}
-                            </select>
+                            <HrEmployeeSelect
+                              employees={employees}
+                              value={activity.responsibleEmployeeId}
+                              fallbackName={activity.responsible}
+                              ariaLabel={`Verantwoordelijke voor ${activity.name}`}
+                              placeholder="Zoek medewerker"
+                              onChange={employee => updateActivity(activity.id, employee
+                                ? { responsibleEmployeeId: employee.id, responsible: employeeFullName(employee) }
+                                : { responsibleEmployeeId: undefined, responsible: "" })}
+                            />
                           </td>
                           <td>
                             <input
@@ -8008,7 +8076,7 @@ function PlanningActivityInspector({
       <label className="full">Activiteit<input value={activity.name} onChange={event => onUpdate({ name: event.target.value })}/></label>
       <label>Start<input type="date" value={activity.startDate} onChange={event => onUpdate(activity.milestone ? { startDate: event.target.value, endDate: event.target.value } : { startDate: event.target.value })}/><small>Baseline: {date(baselineStartDate)}</small></label>
       <label>Einde<input type="date" disabled={activity.milestone} value={activity.endDate} onChange={event => onUpdate({ endDate: event.target.value })}/><small>Baseline: {date(baselineEndDate)}</small></label>
-      <label className="full">Verantwoordelijke<select value={activity.responsibleEmployeeId ?? ""} onChange={event => { const employee = employees.find(item => item.id === event.target.value); onUpdate(employee ? { responsibleEmployeeId: employee.id, responsible: `${employee.firstName} ${employee.lastName}` } : { responsibleEmployeeId: undefined, responsible: "" }); }}><option value="">Selecteer uit HR</option>{employees.filter(item => item.active).map(employee => <option key={employee.id} value={employee.id}>{employee.firstName} {employee.lastName} · {employee.role} · {employee.employmentPct}%</option>)}</select></label>
+      <label className="full">Verantwoordelijke<HrEmployeeSelect employees={employees} value={activity.responsibleEmployeeId} fallbackName={activity.responsible} ariaLabel="Verantwoordelijke voor de planningsactiviteit" placeholder="Zoek een medewerker in HR" onChange={employee => onUpdate(employee ? { responsibleEmployeeId: employee.id, responsible: employeeFullName(employee) } : { responsibleEmployeeId: undefined, responsible: "" })}/></label>
       <label>Voortgang<span className="planning-range"><input type="range" min="0" max="100" value={activity.progress} onChange={event => onUpdate({ progress: Number(event.target.value) })}/><b>{activity.progress}%</b></span></label>
       <label>Ploeggrootte<input type="number" min="0" max="500" value={activity.crewSize} onChange={event => onUpdate({ crewSize: Math.max(0, Number(event.target.value)) })}/></label>
       <label className="planning-inspector-check full"><input type="checkbox" checked={activity.weatherSensitive} onChange={event => onUpdate({ weatherSensitive: event.target.checked })}/><span>Weersafhankelijke activiteit</span></label>
