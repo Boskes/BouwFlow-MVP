@@ -16,6 +16,7 @@ const state: BouwFlowState = {
   intercompanyCharges: [],
   assets: [], warehouses: [], inventoryItems: [], stockMovements: [],
   subcontractors: [], qhseEvents: [], jointVentures: [], integrationConnections: [], integrationJobs: [], aiAnalyses: [], projectContracts: [], projectCloseouts: [], employees: [], employeeAbsences: [], employeeCrews: [], workTickets: [], timeEntries: [], projectClaims: [],
+  checkinatworkSites: [], checkinatworkParticipants: [], checkinatworkRegistrations: [], checkinatworkAuditEvents: [], checkinatworkIntegrationStatus: { simulationAvailable: true, productionConfigured: false, productionEnabled: false, provider: 'Test', protocol: 'PresenceRegistration v1.11' },
   purchaseOrders: [
     { id: 'order-1', number: 'BB-001', procurementRequestId: 'request-1', projectId: project.id, supplierId: 'supplier-1', orderDate: '2027-02-01', expectedDeliveryDate: '2027-02-15', amount: 5600, status: 'Factuur gecontroleerd', commitmentCostId: 'cost-1', invoiceNumber: 'LF-001', invoiceDate: '2027-02-16', invoiceDueDate: '2027-03-18', invoiceAmount: 5700, createdAt: '2027-02-01T00:00:00.000Z' },
     { id: 'order-2', number: 'BB-002', procurementRequestId: 'request-2', projectId: project.id, supplierId: 'supplier-1', orderDate: '2027-03-01', expectedDeliveryDate: '2027-04-01', amount: 1000, status: 'Besteld', commitmentCostId: 'cost-2', createdAt: '2027-03-01T00:00:00.000Z' },

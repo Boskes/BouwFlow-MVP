@@ -886,6 +886,26 @@ export const timeEntrySchema = z.object({
 
 export const timeEntryDecisionSchema = z.object({ decision: z.enum(['Goedgekeurd', 'Geweigerd']), reason: z.string().trim().max(1_000).optional() }).strict()
 
+export const checkinatworkSiteSchema = z.object({
+  projectId: z.uuid(), declarationNumber: z.string().trim().max(100), workPlaceId: z.string().trim().max(100), declarantCompanyNumber: z.string().trim().max(20),
+  applicability: z.enum(['Te beoordelen','Verplicht','Niet verplicht','Be\u00ebindigd']), applicabilityReason: z.string().trim().max(1_000), thresholdAmount: z.number().min(0).max(1_000_000_000),
+  startDate: z.iso.date(), plannedEndDate: z.iso.date().optional(), provisionalAcceptanceOn: z.iso.date().optional(), address: z.string().trim().min(2).max(300),
+  latitude: z.number().min(-90).max(90).optional(), longitude: z.number().min(-180).max(180).optional(), geofenceRadiusMeters: z.number().int().min(10).max(10_000).optional(),
+  environment: z.enum(['Simulatie','Productie']), active: z.boolean(),
+}).strict()
+
+export const checkinatworkParticipantSchema = z.object({
+  projectId: z.uuid(), employeeId: z.uuid().optional(), subcontractorId: z.uuid().optional(), displayName: z.string().trim().min(2).max(200), employerName: z.string().trim().min(2).max(200), employerCompanyNumber: z.string().trim().max(20).optional(),
+  participantType: z.enum(['Werknemer','Zelfstandige','Interim','Onderaannemer','Architect','Veiligheidsco\u00f6rdinator']), identifierType: z.enum(['INSZ','Limosa']), identifier: z.string().trim().min(11).max(30), limosaExpiresOn: z.iso.date().optional(), active: z.boolean(),
+}).strict().superRefine((value, context) => {
+  const digits = value.identifier.replace(/\D/g, '')
+  const expected = value.identifierType === 'INSZ' ? 11 : 17
+  if (digits.length !== expected) context.addIssue({ code:'custom', message:`${value.identifierType} moet ${expected} cijfers bevatten`, path:['identifier'] })
+})
+
+export const checkinatworkRegistrationSchema = z.object({ siteId:z.uuid(), participantId:z.uuid(), registrationDate:z.iso.date(), source:z.enum(['Mobiel','QR','Badge','Kiosk','Planning','Manueel','Import']), latitude:z.number().min(-90).max(90).optional(), longitude:z.number().min(-180).max(180).optional() }).strict()
+export const checkinatworkCancellationSchema = z.object({ reason:z.enum(['HOLIDAY','DISEASE','PLANNING','C32A']) }).strict()
+
 export const projectClaimSchema = z.object({
   projectId: z.uuid(), changeOrderId: z.uuid().optional(),
   type: z.enum(['Financiële claim', 'Termijnverlenging', 'Schadeclaim', 'Contractmelding']),

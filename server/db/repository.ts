@@ -9,12 +9,13 @@ import { boqItemQuantity, effectiveBoqValues, unitCost } from '../../src/domain.
 import type { CrmActivity, DocumentRecordLink, DocumentRecordLinkInput, OrganizationInput, OrganizationRelation, QuoteWorkflow, TenderDossier } from '../../src/domain.js'
 import type { WorkflowCorrection, WorkflowCorrectionInput, WorkflowCorrectionResult } from '../../src/domain.js'
 import type { Asset, AssetInput, AssetOperationalInput, InventoryCountInput, InventoryItem, InventoryItemInput, StockMovement, StockMovementInput, Warehouse, WarehouseInput } from '../../src/domain.js'
-import type { AiAnalysis, AiAnalysisInput, Employee, EmployeeAbsence, EmployeeAbsenceDecisionInput, EmployeeAbsenceInput, EmployeeCrew, EmployeeCrewInput, EmployeeInput, IntegrationConnection, IntegrationConnectionInput, IntegrationJob, IntegrationJobInput, JointVenture, JointVentureInput, ProjectClaim, ProjectClaimInput, ProjectCloseout, ProjectCloseoutInput, ProjectCloseoutUpdateInput, ProjectContract, ProjectContractInput, ProjectContractUpdateInput, QhseEvent, QhseEventInput, ServiceRequestInput, Subcontractor, SubcontractorInput, SubcontractorOperationInput, TimeEntry, TimeEntryInput, WorkTicket, WorkTicketInput } from '../../src/domain.js'
+import type { AiAnalysis, AiAnalysisInput, CheckinatworkAuditEvent, CheckinatworkCancellationReason, CheckinatworkParticipant, CheckinatworkParticipantInput, CheckinatworkRegistration, CheckinatworkRegistrationInput, CheckinatworkSite, CheckinatworkSiteInput, Employee, EmployeeAbsence, EmployeeAbsenceDecisionInput, EmployeeAbsenceInput, EmployeeCrew, EmployeeCrewInput, EmployeeInput, IntegrationConnection, IntegrationConnectionInput, IntegrationJob, IntegrationJobInput, JointVenture, JointVentureInput, ProjectClaim, ProjectClaimInput, ProjectCloseout, ProjectCloseoutInput, ProjectCloseoutUpdateInput, ProjectContract, ProjectContractInput, ProjectContractUpdateInput, QhseEvent, QhseEventInput, ServiceRequestInput, Subcontractor, SubcontractorInput, SubcontractorOperationInput, TimeEntry, TimeEntryInput, WorkTicket, WorkTicketInput } from '../../src/domain.js'
 import { DevelopmentAiGateway, DevelopmentIntegrationGateway, type AiGateway, type IntegrationGateway } from '../enterprise-gateways.js'
 import type { PeppolTransportResult } from '../peppol/access-point.js'
 import type { PeppolNotificationTarget } from '../peppol/notification.js'
 import type { CentralMailMessage } from '../microsoft365-mail.js'
 import type { PriceIndexProvider } from '../price-index-service.js'
+import { CheckinatworkGatewayError, SimulationCheckinatworkGateway, type CheckinatworkGateway } from '../checkinatwork-gateway.js'
 
 const workflowCorrectionSequences: Record<WorkflowCorrectionInput['dossierType'], string[]> = {
   opportunity: ['Nieuw','Gekwalificeerd','Go/No-Go','Calculatie','Offerte verstuurd','Onderhandeling','Gewonnen'],
@@ -60,6 +61,13 @@ interface BlueprintStateRow extends QueryResultRow {
   time_entries: TimeEntry[] | string
   project_claims: ProjectClaim[] | string
   workflow_definitions: WorkflowDefinition[] | string
+}
+
+interface CheckinatworkStateRow extends QueryResultRow {
+  sites: CheckinatworkSite[] | string
+  participants: CheckinatworkParticipant[] | string
+  registrations: CheckinatworkRegistration[] | string
+  audit_events: CheckinatworkAuditEvent[] | string
 }
 
 interface LegalEntityRow extends QueryResultRow {
@@ -522,7 +530,7 @@ export function scopeExternalBootstrap(state: BouwFlowState, context: RequestCon
     peppolAlerts: [], peppolNotifications: [], intercompanyCharges: [], projectCosts: [], projectForecasts: [],
     assets: [], warehouses: [], inventoryItems: [], stockMovements: [], jointVentures: [], integrationConnections: [], integrationJobs: [],
     aiAnalyses: [], employees: [], employeeAbsences: [], employeeCrews: [],
-    workTickets: [], timeEntries: [], projectClaims: [],
+    workTickets: [], timeEntries: [], projectClaims: [], checkinatworkSites: [], checkinatworkParticipants: [], checkinatworkRegistrations: [], checkinatworkAuditEvents: [],
   } satisfies Partial<BouwFlowState>
 
   if (externalRoles.includes('Klant')) {
@@ -559,6 +567,8 @@ export function scopeExternalBootstrap(state: BouwFlowState, context: RequestCon
     const subcontractors = state.subcontractors.filter(subcontractor => normalizedEmail(subcontractor.email) === email)
     const subcontractorIds = new Set(subcontractors.map(subcontractor => subcontractor.id))
     const projectIds = new Set(subcontractors.flatMap(subcontractor => subcontractor.projectIds))
+    const checkinatworkParticipants = state.checkinatworkParticipants.filter(participant => Boolean(participant.subcontractorId && subcontractorIds.has(participant.subcontractorId) && projectIds.has(participant.projectId)))
+    const checkinatworkParticipantIds = new Set(checkinatworkParticipants.map(participant => participant.id))
     const projects = state.projects.filter(project => projectIds.has(project.id)).map(project => ({ ...project, contractValue: 0, costBudget: 0, marginPct: 0 }))
     return {
       ...state, ...emptyInternalData,
@@ -575,6 +585,9 @@ export function scopeExternalBootstrap(state: BouwFlowState, context: RequestCon
       }),
       qhseCertificates: state.qhseCertificates.filter(certificate => projectIds.has(certificate.projectId) && certificate.holderType === 'Onderaannemer' && subcontractors.some(subcontractor => certificate.holderName.toLowerCase().includes(subcontractor.name.toLowerCase()))),
       qhseInspections: [], qhseEvents: [], subcontractors,
+      checkinatworkSites: state.checkinatworkSites.filter(site => projectIds.has(site.projectId)),
+      checkinatworkParticipants,
+      checkinatworkRegistrations: state.checkinatworkRegistrations.filter(registration => checkinatworkParticipantIds.has(registration.participantId)),
       projectContracts: [], projectCloseouts: [],
       workTickets: state.workTickets.filter(ticket => projectIds.has(ticket.projectId) && Boolean(ticket.subcontractorId && subcontractorIds.has(ticket.subcontractorId))),
     }
@@ -633,6 +646,7 @@ export class BouwFlowRepository {
     private readonly integrationGateway: IntegrationGateway = new DevelopmentIntegrationGateway(),
     private readonly aiGateway: AiGateway = new DevelopmentAiGateway(),
     private readonly priceIndexProvider?: PriceIndexProvider,
+    private readonly checkinatworkGateway: CheckinatworkGateway = new SimulationCheckinatworkGateway(),
   ) {}
 
   async priceIndexCatalogue(force=false) {
@@ -774,6 +788,8 @@ export class BouwFlowRepository {
     const operations = operationsResult.rows[0]
     const blueprintResult = await this.pool.query<BlueprintStateRow>('SELECT * FROM blueprint_state WHERE tenant_id=$1', [context.tenantId])
     const blueprint = blueprintResult.rows[0]
+    const checkinatworkResult = await this.pool.query<CheckinatworkStateRow>('SELECT * FROM checkinatwork_state WHERE tenant_id=$1', [context.tenantId])
+    const checkinatwork = checkinatworkResult.rows[0]
     const state: BouwFlowState = {
       currentUserId: context.userId,
       companyUsers,
@@ -830,6 +846,18 @@ export class BouwFlowRepository {
       employeeCrews: blueprint ? jsonValue<EmployeeCrew[]>(blueprint.employee_crews) : [],
       workTickets: blueprint ? jsonValue<WorkTicket[]>(blueprint.work_tickets) : [],
       timeEntries: blueprint ? jsonValue<TimeEntry[]>(blueprint.time_entries) : [],
+      checkinatworkSites: checkinatwork ? jsonValue<CheckinatworkSite[]>(checkinatwork.sites) : [],
+      checkinatworkParticipants: checkinatwork ? jsonValue<CheckinatworkParticipant[]>(checkinatwork.participants).map(participant => ({ ...participant, secureIdentityReference: undefined })) : [],
+      checkinatworkRegistrations: checkinatwork ? jsonValue<CheckinatworkRegistration[]>(checkinatwork.registrations) : [],
+      checkinatworkAuditEvents: checkinatwork ? jsonValue<CheckinatworkAuditEvent[]>(checkinatwork.audit_events) : [],
+      checkinatworkIntegrationStatus: {
+        simulationAvailable: true,
+        productionConfigured: this.checkinatworkGateway.productionConfigured,
+        productionEnabled: this.checkinatworkGateway.productionEnabled,
+        provider: this.checkinatworkGateway.provider,
+        protocol: 'RSZ PresenceRegistration v1.11 \u00b7 SAML Holder-of-Key SHA-256',
+        lastCheckedAt: new Date().toISOString(),
+      },
       projectClaims: blueprint ? jsonValue<ProjectClaim[]>(blueprint.project_claims) : [],
     }
     const externallyScopedState = scopeExternalBootstrap(state, context)
@@ -862,6 +890,10 @@ export class BouwFlowRepository {
       costLibraryVersions: visibleCostLibraryVersions,
       costLibrary: state.costLibrary.filter(item => !item.libraryVersionId || visibleCostLibraryVersionIds.has(item.libraryVersionId)),
       projects: visibleProjects,
+      checkinatworkSites: state.checkinatworkSites.filter(item => visibleProjectIds.has(item.projectId)),
+      checkinatworkParticipants: state.checkinatworkParticipants.filter(item => visibleProjectIds.has(item.projectId)),
+      checkinatworkRegistrations: state.checkinatworkRegistrations.filter(item => visibleProjectIds.has(item.projectId)),
+      checkinatworkAuditEvents: state.checkinatworkAuditEvents.filter(item => visibleProjectIds.has(item.projectId)),
       dailyReports: state.dailyReports.filter(item => visibleProjectIds.has(item.projectId)),
       sitePhotos: state.sitePhotos.filter(item => visibleProjectIds.has(item.projectId)),
       changeOrders: state.changeOrders.filter(item => visibleProjectIds.has(item.projectId)),
@@ -1148,6 +1180,135 @@ export class BouwFlowRepository {
 
   private async saveBlueprintState(client: SqlClient, tenantId: string, state: Awaited<ReturnType<BouwFlowRepository['blueprintState']>>) {
     await client.query(`INSERT INTO blueprint_state (tenant_id,subcontractors,qhse_events,joint_ventures,integration_connections,integration_jobs,ai_analyses,project_contracts,project_closeouts,employees,employee_absences,employee_crews,work_tickets,time_entries,project_claims,workflow_definitions,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,now()) ON CONFLICT (tenant_id) DO UPDATE SET subcontractors=EXCLUDED.subcontractors,qhse_events=EXCLUDED.qhse_events,joint_ventures=EXCLUDED.joint_ventures,integration_connections=EXCLUDED.integration_connections,integration_jobs=EXCLUDED.integration_jobs,ai_analyses=EXCLUDED.ai_analyses,project_contracts=EXCLUDED.project_contracts,project_closeouts=EXCLUDED.project_closeouts,employees=EXCLUDED.employees,employee_absences=EXCLUDED.employee_absences,employee_crews=EXCLUDED.employee_crews,work_tickets=EXCLUDED.work_tickets,time_entries=EXCLUDED.time_entries,project_claims=EXCLUDED.project_claims,workflow_definitions=EXCLUDED.workflow_definitions,updated_at=now()`, [tenantId, JSON.stringify(state.subcontractors), JSON.stringify(state.qhseEvents), JSON.stringify(state.jointVentures), JSON.stringify(state.integrationConnections), JSON.stringify(state.integrationJobs), JSON.stringify(state.aiAnalyses), JSON.stringify(state.projectContracts), JSON.stringify(state.projectCloseouts), JSON.stringify(state.employees), JSON.stringify(state.employeeAbsences), JSON.stringify(state.employeeCrews), JSON.stringify(state.workTickets), JSON.stringify(state.timeEntries), JSON.stringify(state.projectClaims),JSON.stringify(state.workflowDefinitions)])
+  }
+
+  private async checkinatworkState(client: SqlClient, tenantId: string) {
+    const result = await client.query<CheckinatworkStateRow>('SELECT * FROM checkinatwork_state WHERE tenant_id=$1 FOR UPDATE', [tenantId])
+    if (!result.rowCount) return { sites: [] as CheckinatworkSite[], participants: [] as CheckinatworkParticipant[], registrations: [] as CheckinatworkRegistration[], auditEvents: [] as CheckinatworkAuditEvent[] }
+    const row = result.rows[0]
+    return { sites: jsonValue<CheckinatworkSite[]>(row.sites), participants: jsonValue<CheckinatworkParticipant[]>(row.participants), registrations: jsonValue<CheckinatworkRegistration[]>(row.registrations), auditEvents: jsonValue<CheckinatworkAuditEvent[]>(row.audit_events) }
+  }
+
+  private async saveCheckinatworkState(client: SqlClient, tenantId: string, state: Awaited<ReturnType<BouwFlowRepository['checkinatworkState']>>) {
+    await client.query(`INSERT INTO checkinatwork_state (tenant_id,sites,participants,registrations,audit_events,updated_at) VALUES ($1,$2,$3,$4,$5,now()) ON CONFLICT (tenant_id) DO UPDATE SET sites=EXCLUDED.sites,participants=EXCLUDED.participants,registrations=EXCLUDED.registrations,audit_events=EXCLUDED.audit_events,updated_at=now()`, [tenantId, JSON.stringify(state.sites), JSON.stringify(state.participants), JSON.stringify(state.registrations), JSON.stringify(state.auditEvents.slice(0, 5_000))])
+  }
+
+  private checkinatworkTransport(site: CheckinatworkSite) {
+    if (site.environment === 'Simulatie') return new SimulationCheckinatworkGateway()
+    if (!this.checkinatworkGateway.productionConfigured) throw new RepositoryError('De productie-adapter, technische gebruiker en GlobalSign-configuratie zijn nog niet ingesteld', 503)
+    return this.checkinatworkGateway
+  }
+
+  private checkinatworkAudit(state: Awaited<ReturnType<BouwFlowRepository['checkinatworkState']>>, context: RequestContext, event: Omit<CheckinatworkAuditEvent, 'id' | 'actor' | 'at'>) {
+    state.auditEvents.unshift({ id: randomUUID(), ...event, actor: context.displayName, at: new Date().toISOString() })
+  }
+
+  async configureCheckinatworkSite(context: RequestContext, input: CheckinatworkSiteInput): Promise<CheckinatworkSite> {
+    return this.transaction(async client => {
+      await this.requireProject(client, context, input.projectId)
+      const projectResult = await client.query<{contract_value:string|number} & QueryResultRow>('SELECT contract_value FROM projects WHERE tenant_id=$1 AND id=$2', [context.tenantId, input.projectId])
+      const contractValue = Number(projectResult.rows[0]?.contract_value ?? 0)
+      const thresholdAmount = input.thresholdAmount || 500_000
+      const applicability = input.provisionalAcceptanceOn ? 'Be\u00ebindigd' : input.applicability === 'Niet verplicht' ? 'Niet verplicht' : contractValue >= thresholdAmount ? 'Verplicht' : 'Niet verplicht'
+      const now = new Date().toISOString()
+      const state = await this.checkinatworkState(client, context.tenantId)
+      const current = state.sites.find(item => item.projectId === input.projectId)
+      const site: CheckinatworkSite = current ? { ...current, ...input, applicability, updatedAt: now } : { id: randomUUID(), ...input, applicability, createdAt: now, updatedAt: now }
+      state.sites = [site, ...state.sites.filter(item => item.id !== site.id && item.projectId !== input.projectId)]
+      this.checkinatworkAudit(state, context, { projectId: site.projectId, siteId: site.id, action: 'SITE_CONFIGURED', detail: `${site.environment} \u00b7 ${site.applicability} \u00b7 werkplaats ${site.workPlaceId || 'nog niet ingevuld'}` })
+      await this.saveCheckinatworkState(client, context.tenantId, state)
+      await this.audit(client, context, 'checkinatwork_site', site.id, current ? 'updated' : 'created', current ?? null, site)
+      return site
+    })
+  }
+
+  async createCheckinatworkParticipant(context: RequestContext, input: CheckinatworkParticipantInput): Promise<CheckinatworkParticipant> {
+    return this.transaction(async client => {
+      await this.requireProject(client, context, input.projectId)
+      const state = await this.checkinatworkState(client, context.tenantId)
+      const site = state.sites.find(item => item.projectId === input.projectId && item.active)
+      if (!site) throw new RepositoryError('Configureer eerst de Checkinatwork-werkplaats', 409)
+      if (context.roles.includes('Onderaannemer')) {
+        const blueprint = await this.blueprintState(client, context.tenantId)
+        const own = blueprint.subcontractors.find(item => item.id === input.subcontractorId && normalizedEmail(item.email) === normalizedEmail(context.email) && item.projectIds.includes(input.projectId))
+        if (!own) throw new RepositoryError('Je kunt alleen medewerkers van je eigen onderaannemersdossier aanmelden', 403)
+      }
+      const transport = this.checkinatworkTransport(site)
+      let identity: Awaited<ReturnType<CheckinatworkGateway['provisionIdentity']>>
+      try { identity = await transport.provisionIdentity(input) }
+      catch (error) { throw new RepositoryError(error instanceof CheckinatworkGatewayError ? error.message : 'Identiteit kon niet veilig worden geprovisioneerd', 409) }
+      const participant: CheckinatworkParticipant = { id: randomUUID(), projectId: input.projectId, employeeId: input.employeeId, subcontractorId: input.subcontractorId, displayName: input.displayName, employerName: input.employerName, employerCompanyNumber: input.employerCompanyNumber, participantType: input.participantType, identifierType: input.identifierType, identifierLast4: identity.identifierLast4, secureIdentityReference: identity.secureIdentityReference, identityVerified: true, limosaExpiresOn: input.limosaExpiresOn, active: input.active, createdAt: new Date().toISOString() }
+      state.participants.unshift(participant)
+      this.checkinatworkAudit(state, context, { projectId: participant.projectId, siteId: site.id, participantId: participant.id, action: 'IDENTITY_PROVISIONED', detail: `${participant.identifierType} eindigend op ${participant.identifierLast4} veilig geprovisioneerd` })
+      await this.saveCheckinatworkState(client, context.tenantId, state)
+      await this.audit(client, context, 'checkinatwork_participant', participant.id, 'created', null, { ...participant, secureIdentityReference: '[AFGESCHERMD]' })
+      return { ...participant, secureIdentityReference: undefined }
+    })
+  }
+
+  async registerCheckinatworkPresence(context: RequestContext, input: CheckinatworkRegistrationInput): Promise<CheckinatworkRegistration> {
+    return this.transaction(async client => {
+      const state = await this.checkinatworkState(client, context.tenantId)
+      const site = state.sites.find(item => item.id === input.siteId && item.active)
+      const participant = state.participants.find(item => item.id === input.participantId && item.active)
+      if (!site || !participant || participant.projectId !== site.projectId) throw new RepositoryError('Werkplaats of deelnemer niet gevonden', 404)
+      await this.requireProject(client, context, site.projectId)
+      if (context.roles.includes('Onderaannemer')) {
+        const blueprint = await this.blueprintState(client, context.tenantId)
+        const own = blueprint.subcontractors.find(item => item.id === participant.subcontractorId && normalizedEmail(item.email) === normalizedEmail(context.email) && item.projectIds.includes(site.projectId))
+        if (!own) throw new RepositoryError('Deze persoon behoort niet tot je eigen onderaannemersdossier', 403)
+      }
+      const unrestrictedRoles = ['Administrator','Projectmanager','Werfleider','Preventieadviseur']
+      const restrictedWorker = context.roles.includes('Arbeider') && !context.roles.some(role => unrestrictedRoles.includes(role))
+      const restrictedForeman = context.roles.includes('Ploegbaas') && !context.roles.some(role => unrestrictedRoles.includes(role))
+      if (restrictedWorker || restrictedForeman) {
+        const blueprint = await this.blueprintState(client, context.tenantId)
+        const ownEmployee = blueprint.employees.find(item => normalizedEmail(item.email) === normalizedEmail(context.email))
+        const allowedEmployeeIds = new Set([ownEmployee?.id, ...(restrictedForeman ? blueprint.employeeCrews.filter(crew => crew.leaderEmployeeId === ownEmployee?.id).flatMap(crew => crew.memberEmployeeIds) : [])].filter(Boolean))
+        if (!participant.employeeId || !allowedEmployeeIds.has(participant.employeeId)) throw new RepositoryError('Je kunt alleen jezelf of leden van je eigen ploeg registreren', 403)
+      }
+      const duplicate = state.registrations.find(item => item.siteId === site.id && item.participantId === participant.id && item.registrationDate === input.registrationDate && !['Geannuleerd', 'Geweigerd'].includes(item.status))
+      if (duplicate) return duplicate
+      const clientReference = `bouwflow:${site.id}:${participant.id}:${input.registrationDate}`
+      const registration: CheckinatworkRegistration = { id: randomUUID(), siteId: site.id, projectId: site.projectId, participantId: participant.id, registrationDate: input.registrationDate, source: input.source, status: 'Verzending bezig', clientReference, simulation: site.environment === 'Simulatie', createdBy: context.displayName, createdAt: new Date().toISOString(), submittedAt: new Date().toISOString() }
+      try {
+        const result = await this.checkinatworkTransport(site).register({ site, participant, registrationDate: input.registrationDate, clientReference })
+        Object.assign(registration, { status: 'Officieel bevestigd' as const, providerRegistrationId: result.providerRegistrationId, receiptNumber: result.receiptNumber, confirmedAt: result.confirmedAt })
+        this.checkinatworkAudit(state, context, { projectId: site.projectId, siteId: site.id, participantId: participant.id, registrationId: registration.id, action: 'REGISTRATION_CONFIRMED', detail: `Ontvangstnummer ${result.receiptNumber}` })
+      } catch (error) {
+        const gatewayError = error instanceof CheckinatworkGatewayError ? error : undefined
+        Object.assign(registration, { status: 'Geweigerd' as const, errorCode: gatewayError?.code ?? 'DELIVERY_FAILED', errorMessage: error instanceof Error ? error.message : 'Registratie mislukt' })
+        this.checkinatworkAudit(state, context, { projectId: site.projectId, siteId: site.id, participantId: participant.id, registrationId: registration.id, action: 'REGISTRATION_REJECTED', detail: registration.errorMessage ?? 'Registratie geweigerd' })
+      }
+      state.registrations.unshift(registration)
+      await this.saveCheckinatworkState(client, context.tenantId, state)
+      await this.audit(client, context, 'checkinatwork_registration', registration.id, registration.status === 'Officieel bevestigd' ? 'confirmed' : 'rejected', null, { ...registration, clientReference: '[AFGESCHERMD]' })
+      return registration
+    })
+  }
+
+  async cancelCheckinatworkPresence(context: RequestContext, id: string, reason: CheckinatworkCancellationReason): Promise<CheckinatworkRegistration> {
+    return this.transaction(async client => {
+      const state = await this.checkinatworkState(client, context.tenantId)
+      const current = state.registrations.find(item => item.id === id)
+      if (!current) throw new RepositoryError('Aanwezigheidsregistratie niet gevonden', 404)
+      const site = state.sites.find(item => item.id === current.siteId)
+      if (!site || !current.providerRegistrationId) throw new RepositoryError('Deze registratie kan niet officieel worden geannuleerd', 409)
+      await this.requireProject(client, context, current.projectId)
+      if (context.roles.includes('Onderaannemer')) {
+        const participant = state.participants.find(item => item.id === current.participantId)
+        const blueprint = await this.blueprintState(client, context.tenantId)
+        const own = blueprint.subcontractors.find(item => item.id === participant?.subcontractorId && normalizedEmail(item.email) === normalizedEmail(context.email) && item.projectIds.includes(current.projectId))
+        if (!own) throw new RepositoryError('Je kunt alleen registraties van je eigen onderaannemersdossier annuleren', 403)
+      }
+      const result = await this.checkinatworkTransport(site).cancel({ site, registrationId: current.id, providerRegistrationId: current.providerRegistrationId, reason })
+      const updated: CheckinatworkRegistration = { ...current, status: 'Geannuleerd', cancellationReason: reason, cancelledAt: result.cancelledAt }
+      state.registrations = state.registrations.map(item => item.id === id ? updated : item)
+      this.checkinatworkAudit(state, context, { projectId: current.projectId, siteId: current.siteId, participantId: current.participantId, registrationId: current.id, action: 'REGISTRATION_CANCELLED', detail: `Geannuleerd met reden ${reason}` })
+      await this.saveCheckinatworkState(client, context.tenantId, state)
+      await this.audit(client, context, 'checkinatwork_registration', id, 'cancelled', current, updated, reason)
+      return updated
+    })
   }
 
   async createEmployee(context: RequestContext, input: EmployeeInput): Promise<Employee> {

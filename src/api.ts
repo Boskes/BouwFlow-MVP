@@ -5,7 +5,7 @@ import type { WorkflowCorrectionInput, WorkflowCorrectionResult } from './domain
 import type { CloseoutItem, ProjectCloseoutUpdateInput, ServiceRequestInput } from './domain'
 import type { PriceIndexCatalogue } from './domain'
 import type { Asset, AssetInput, AssetOperationalInput, InventoryCountInput, InventoryItem, InventoryItemInput, StockMovement, StockMovementInput, Warehouse, WarehouseInput } from './domain'
-import type { AiAnalysis, AiAnalysisInput, Employee, EmployeeAbsence, EmployeeAbsenceDecisionInput, EmployeeAbsenceInput, EmployeeCrew, EmployeeCrewInput, EmployeeInput, IntegrationConnection, IntegrationConnectionInput, IntegrationJob, IntegrationJobInput, JointVenture, JointVentureInput, ProjectClaim, ProjectClaimInput, ProjectCloseout, ProjectCloseoutInput, ProjectContract, ProjectContractInput, ProjectContractUpdateInput, QhseEvent, QhseEventInput, Subcontractor, SubcontractorInput, SubcontractorOperationInput, TimeEntry, TimeEntryInput, WorkTicket, WorkTicketInput } from './domain'
+import type { AiAnalysis, AiAnalysisInput, CheckinatworkCancellationReason, CheckinatworkParticipant, CheckinatworkParticipantInput, CheckinatworkRegistration, CheckinatworkRegistrationInput, CheckinatworkSite, CheckinatworkSiteInput, Employee, EmployeeAbsence, EmployeeAbsenceDecisionInput, EmployeeAbsenceInput, EmployeeCrew, EmployeeCrewInput, EmployeeInput, IntegrationConnection, IntegrationConnectionInput, IntegrationJob, IntegrationJobInput, JointVenture, JointVentureInput, ProjectClaim, ProjectClaimInput, ProjectCloseout, ProjectCloseoutInput, ProjectContract, ProjectContractInput, ProjectContractUpdateInput, QhseEvent, QhseEventInput, Subcontractor, SubcontractorInput, SubcontractorOperationInput, TimeEntry, TimeEntryInput, WorkTicket, WorkTicketInput } from './domain'
 import { canQueueOffline, countQueuedMutations, enqueueMutation, queuedMutations, removeQueuedMutation, updateQueuedMutation } from './offline-queue'
 
 type FetchLike = (input: string | URL | Request, init?: RequestInit) => Promise<Response>
@@ -389,6 +389,10 @@ export class BouwFlowApi {
   createTimeEntry(input:TimeEntryInput) { return this.request<TimeEntry>('/api/time-entries',{method:'POST',body:JSON.stringify(input)}) }
   submitTimeEntry(id:string) { return this.request<TimeEntry>(`/api/time-entries/${encodeURIComponent(id)}/submit`,{method:'POST'}) }
   decideTimeEntry(id:string,decision:'Goedgekeurd'|'Geweigerd',reason?:string) { return this.request<TimeEntry>(`/api/time-entries/${encodeURIComponent(id)}/decision`,{method:'POST',body:JSON.stringify({decision,reason})}) }
+  configureCheckinatworkSite(input:CheckinatworkSiteInput) { return this.request<CheckinatworkSite>('/api/checkinatwork/sites',{method:'PUT',body:JSON.stringify(input)}) }
+  createCheckinatworkParticipant(input:CheckinatworkParticipantInput) { return this.request<CheckinatworkParticipant>('/api/checkinatwork/participants',{method:'POST',body:JSON.stringify(input)}) }
+  registerCheckinatworkPresence(input:CheckinatworkRegistrationInput) { return this.request<CheckinatworkRegistration>('/api/checkinatwork/registrations',{method:'POST',body:JSON.stringify(input)}) }
+  cancelCheckinatworkPresence(id:string,reason:CheckinatworkCancellationReason) { return this.request<CheckinatworkRegistration>(`/api/checkinatwork/registrations/${encodeURIComponent(id)}/cancel`,{method:'POST',body:JSON.stringify({reason})}) }
   createProjectClaim(input:ProjectClaimInput) { return this.request<ProjectClaim>('/api/project-claims',{method:'POST',body:JSON.stringify(input)}) }
   transitionProjectClaim(id:string,action:'approve'|'submit'|'accept'|'reject',notes?:string) { return this.request<ProjectClaim>(`/api/project-claims/${encodeURIComponent(id)}/transition`,{method:'POST',body:JSON.stringify({action,notes})}) }
   createJointVenture(input:JointVentureInput) { return this.request<JointVenture>('/api/joint-ventures',{method:'POST',body:JSON.stringify(input)}) }
