@@ -17,6 +17,7 @@ import type { CentralMailMessage } from '../microsoft365-mail.js'
 import type { PriceIndexProvider } from '../price-index-service.js'
 import { CheckinatworkGatewayError, SimulationCheckinatworkGateway, type CheckinatworkGateway } from '../checkinatwork-gateway.js'
 import { analyzeLidarObservations, approveLidarProposal, buildAsBuiltRevision, buildLidarProgressProposals, createLidarBcfTopic, registerLidarScan, type LidarArtifact, type LidarBcfTopic, type LidarControlPoint, type LidarElementObservation, type LidarScanInput, type LidarScanSession } from '../../src/lidar-bim.js'
+import { approveLidarCalculationProposal, buildLidarCalculationProposal, type LidarSurveyElement, type LidarWorkAssignment } from '../../src/lidar-calculation.js'
 
 const workflowCorrectionSequences: Record<WorkflowCorrectionInput['dossierType'], string[]> = {
   opportunity: ['Nieuw','Gekwalificeerd','Go/No-Go','Calculatie','Offerte verstuurd','Onderhandeling','Gewonnen'],
@@ -80,7 +81,7 @@ interface CompanyBranchRow extends QueryResultRow {
 }
 
 interface CompanyUserRow extends QueryResultRow {
-  id: string; display_name: string; email: string; role: string; status:string; employee_id:string|null; organization_id:string|null; subcontractor_id:string|null; supplier_id:string|null; all_legal_entities: boolean; all_projects:boolean
+  id: string; display_name: string; email: string; role: string; roles:string[]|string; status:string; employee_id:string|null; organization_id:string|null; subcontractor_id:string|null; supplier_id:string|null; all_legal_entities: boolean; all_projects:boolean
 }
 
 interface UserEntityAccessRow extends QueryResultRow {
@@ -742,7 +743,7 @@ export class BouwFlowRepository {
   async bootstrap(context: RequestContext): Promise<BouwFlowState> {
     await this.ensureDefaultUnits(context.tenantId)
     const [users, userEntityAccess, userProjectAccess] = await Promise.all([
-      this.pool.query<CompanyUserRow>('SELECT id,display_name,email,role,status,employee_id,organization_id,subcontractor_id,supplier_id,all_legal_entities,all_projects FROM users WHERE tenant_id=$1 ORDER BY display_name', [context.tenantId]),
+      this.pool.query<CompanyUserRow>('SELECT id,display_name,email,role,roles,status,employee_id,organization_id,subcontractor_id,supplier_id,all_legal_entities,all_projects FROM users WHERE tenant_id=$1 ORDER BY display_name', [context.tenantId]),
       this.pool.query<UserEntityAccessRow>('SELECT user_id,legal_entity_id FROM user_legal_entity_access WHERE tenant_id=$1', [context.tenantId]),
       this.pool.query<UserProjectAccessRow>('SELECT user_id,project_id FROM user_project_access WHERE tenant_id=$1', [context.tenantId]),
     ])
@@ -790,7 +791,7 @@ export class BouwFlowRepository {
     const canManageAccess = context.roles.some(role => ['Administrator', 'Directie'].includes(role))
     const canViewPeppolNotificationSettings = context.roles.some(role => ['Administrator', 'Directie', 'Financiële administratie'].includes(role))
     const companyUsers: CompanyUser[] = users.rows.filter(row => canManageAccess || row.id === context.userId).map(row => ({
-      id: row.id, displayName: row.display_name, email: row.email, role: row.role, status:row.status as CompanyUser['status'], employeeId:row.employee_id??undefined, organizationId:row.organization_id??undefined, subcontractorId:row.subcontractor_id??undefined, supplierId:row.supplier_id??undefined, allLegalEntities: row.all_legal_entities, allProjects:row.all_projects,
+      id: row.id, displayName: row.display_name, email: row.email, role: row.role, roles: [...new Set([row.role, ...jsonValue<string[]>(row.roles ?? [])])], status:row.status as CompanyUser['status'], employeeId:row.employee_id??undefined, organizationId:row.organization_id??undefined, subcontractorId:row.subcontractor_id??undefined, supplierId:row.supplier_id??undefined, allLegalEntities: row.all_legal_entities, allProjects:row.all_projects,
       legalEntityIds: userEntityAccess.rows.filter(item => item.user_id === row.id).map(item => item.legal_entity_id),
       projectIds:userProjectAccess.rows.filter(item=>item.user_id===row.id).map(item=>item.project_id),
     }))
@@ -1744,7 +1745,7 @@ export class BouwFlowRepository {
 
   async updateCompanyUserAccess(context: RequestContext, userId: string, input: CompanyUserAccessInput): Promise<CompanyUser> {
     return this.transaction(async client => {
-      const user = await client.query<CompanyUserRow>('SELECT id,display_name,email,role,status,employee_id,organization_id,subcontractor_id,supplier_id,all_legal_entities,all_projects FROM users WHERE tenant_id=$1 AND id=$2 FOR UPDATE', [context.tenantId, userId])
+      const user = await client.query<CompanyUserRow>('SELECT id,display_name,email,role,roles,status,employee_id,organization_id,subcontractor_id,supplier_id,all_legal_entities,all_projects FROM users WHERE tenant_id=$1 AND id=$2 FOR UPDATE', [context.tenantId, userId])
       if (!user.rowCount) throw new RepositoryError('Gebruiker niet gevonden', 404)
       const entityIds = [...new Set(input.legalEntityIds)]
       const projectIds=[...new Set(input.projectIds??[])]
@@ -1756,7 +1757,7 @@ export class BouwFlowRepository {
       const previousAccess = await client.query<UserEntityAccessRow>('SELECT user_id,legal_entity_id FROM user_legal_entity_access WHERE tenant_id=$1 AND user_id=$2', [context.tenantId, userId])
       const previousProjects=await client.query<UserProjectAccessRow>('SELECT user_id,project_id FROM user_project_access WHERE tenant_id=$1 AND user_id=$2',[context.tenantId,userId])
       const row=user.rows[0]
-      const previous: CompanyUser = { id:row.id,displayName:row.display_name,email:row.email,role:row.role,status:row.status as CompanyUser['status'],employeeId:row.employee_id??undefined,organizationId:row.organization_id??undefined,subcontractorId:row.subcontractor_id??undefined,supplierId:row.supplier_id??undefined,allLegalEntities:row.all_legal_entities,legalEntityIds:previousAccess.rows.map(item=>item.legal_entity_id),allProjects:row.all_projects,projectIds:previousProjects.rows.map(item=>item.project_id) }
+      const previous: CompanyUser = { id:row.id,displayName:row.display_name,email:row.email,role:row.role,roles:[...new Set([row.role,...jsonValue<string[]>(row.roles??[])])],status:row.status as CompanyUser['status'],employeeId:row.employee_id??undefined,organizationId:row.organization_id??undefined,subcontractorId:row.subcontractor_id??undefined,supplierId:row.supplier_id??undefined,allLegalEntities:row.all_legal_entities,legalEntityIds:previousAccess.rows.map(item=>item.legal_entity_id),allProjects:row.all_projects,projectIds:previousProjects.rows.map(item=>item.project_id) }
       if(!input.allProjects){const projects=await client.query<{id:string}>('SELECT id FROM projects WHERE tenant_id=$1',[context.tenantId]);const existing=new Set(projects.rows.map(item=>item.id));if(projectIds.some(id=>!existing.has(id)))throw new RepositoryError('Een geselecteerd project bestaat niet',409)}
       await client.query('UPDATE users SET all_legal_entities=$3,all_projects=$4 WHERE tenant_id=$1 AND id=$2', [context.tenantId, userId, input.allLegalEntities,input.allProjects??true])
       await client.query('DELETE FROM user_legal_entity_access WHERE tenant_id=$1 AND user_id=$2', [context.tenantId, userId])
@@ -1772,7 +1773,7 @@ export class BouwFlowRepository {
   async inviteCompanyUser(context:RequestContext,input:CompanyUserProfileInput):Promise<CompanyUser>{
     return this.transaction(async client=>{
       const duplicate=await client.query('SELECT id FROM users WHERE tenant_id=$1 AND lower(email)=lower($2)',[context.tenantId,input.email]);if(duplicate.rowCount)throw new RepositoryError('Er bestaat al een gebruiker met dit e-mailadres',409)
-      const id=randomUUID();await client.query(`INSERT INTO users (tenant_id,id,entra_object_id,display_name,email,role,status,employee_id,organization_id,subcontractor_id,supplier_id,all_legal_entities,all_projects) VALUES ($1,$2,null,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,[context.tenantId,id,input.displayName,input.email,input.role,input.status,input.employeeId??null,input.organizationId??null,input.subcontractorId??null,input.supplierId??null,input.allLegalEntities,input.allProjects])
+      const id=randomUUID();await client.query(`INSERT INTO users (tenant_id,id,entra_object_id,display_name,email,role,roles,status,employee_id,organization_id,subcontractor_id,supplier_id,all_legal_entities,all_projects) VALUES ($1,$2,null,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,[context.tenantId,id,input.displayName,input.email,input.role,JSON.stringify(input.roles?.length?input.roles:[input.role]),input.status,input.employeeId??null,input.organizationId??null,input.subcontractorId??null,input.supplierId??null,input.allLegalEntities,input.allProjects])
       if(!input.allLegalEntities)for(const entityId of input.legalEntityIds)await client.query('INSERT INTO user_legal_entity_access (tenant_id,user_id,legal_entity_id) VALUES ($1,$2,$3)',[context.tenantId,id,entityId])
       if(!input.allProjects)for(const projectId of input.projectIds??[])await client.query('INSERT INTO user_project_access (tenant_id,user_id,project_id) VALUES ($1,$2,$3)',[context.tenantId,id,projectId])
       const created:CompanyUser={id,...input,legalEntityIds:input.allLegalEntities?[]:input.legalEntityIds,projectIds:input.allProjects?[]:input.projectIds??[]};await this.audit(client,context,'user',id,'invited',null,created);return created
@@ -1781,9 +1782,9 @@ export class BouwFlowRepository {
 
   async updateCompanyUser(context:RequestContext,userId:string,input:CompanyUserProfileInput):Promise<CompanyUser>{
     return this.transaction(async client=>{
-      const current=await client.query<CompanyUserRow>('SELECT id,display_name,email,role,status,employee_id,organization_id,subcontractor_id,supplier_id,all_legal_entities,all_projects FROM users WHERE tenant_id=$1 AND id=$2 FOR UPDATE',[context.tenantId,userId]);if(!current.rowCount)throw new RepositoryError('Gebruiker niet gevonden',404)
+      const current=await client.query<CompanyUserRow>('SELECT id,display_name,email,role,roles,status,employee_id,organization_id,subcontractor_id,supplier_id,all_legal_entities,all_projects FROM users WHERE tenant_id=$1 AND id=$2 FOR UPDATE',[context.tenantId,userId]);if(!current.rowCount)throw new RepositoryError('Gebruiker niet gevonden',404)
       const emailDuplicate=await client.query('SELECT id FROM users WHERE tenant_id=$1 AND lower(email)=lower($2) AND id<>$3',[context.tenantId,input.email,userId]);if(emailDuplicate.rowCount)throw new RepositoryError('Dit e-mailadres is al in gebruik',409)
-      await client.query('UPDATE users SET display_name=$3,email=$4,role=$5,status=$6,employee_id=$7,organization_id=$8,subcontractor_id=$9,supplier_id=$10,all_legal_entities=$11,all_projects=$12 WHERE tenant_id=$1 AND id=$2',[context.tenantId,userId,input.displayName,input.email,input.role,input.status,input.employeeId??null,input.organizationId??null,input.subcontractorId??null,input.supplierId??null,input.allLegalEntities,input.allProjects])
+      await client.query('UPDATE users SET display_name=$3,email=$4,role=$5,roles=$6,status=$7,employee_id=$8,organization_id=$9,subcontractor_id=$10,supplier_id=$11,all_legal_entities=$12,all_projects=$13 WHERE tenant_id=$1 AND id=$2',[context.tenantId,userId,input.displayName,input.email,input.role,JSON.stringify(input.roles?.length?input.roles:[input.role]),input.status,input.employeeId??null,input.organizationId??null,input.subcontractorId??null,input.supplierId??null,input.allLegalEntities,input.allProjects])
       await client.query('DELETE FROM user_legal_entity_access WHERE tenant_id=$1 AND user_id=$2',[context.tenantId,userId]);if(!input.allLegalEntities)for(const entityId of input.legalEntityIds)await client.query('INSERT INTO user_legal_entity_access (tenant_id,user_id,legal_entity_id) VALUES ($1,$2,$3)',[context.tenantId,userId,entityId])
       await client.query('DELETE FROM user_project_access WHERE tenant_id=$1 AND user_id=$2',[context.tenantId,userId]);if(!input.allProjects)for(const projectId of input.projectIds??[])await client.query('INSERT INTO user_project_access (tenant_id,user_id,project_id) VALUES ($1,$2,$3)',[context.tenantId,userId,projectId])
       const updated:CompanyUser={id:userId,...input,legalEntityIds:input.allLegalEntities?[]:input.legalEntityIds,projectIds:input.allProjects?[]:input.projectIds??[]};await this.audit(client,context,'user',userId,'profile_updated',current.rows[0],updated);return updated
@@ -2689,6 +2690,8 @@ export class BouwFlowRepository {
       const project: Project = { id: randomUUID(), number: `PRJ-${new Date().getFullYear()}-${String(Number(count.rows[0].count) + 1).padStart(3, '0')}`, name: opportunity.rows[0].title, organizationId: opportunity.rows[0].organization_id, legalEntityId: entity.id, branchId: branch.rows[0]?.id, sourceCalculationId: calculationId, contractValue, costBudget, marginPct, progress: 0, status: 'Opstart', handover, workPackages, planning: emptyPlanning() }
       await client.query(`INSERT INTO projects (tenant_id,id,number,name,organization_id,legal_entity_id,branch_id,source_calculation_id,contract_value,cost_budget,margin_pct,progress,status,handover,work_packages,planning)
         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`, [context.tenantId, project.id, project.number, project.name, project.organizationId, project.legalEntityId ?? null, project.branchId ?? null, calculationId, project.contractValue, project.costBudget, project.marginPct, project.progress, project.status, JSON.stringify(project.handover), JSON.stringify(project.workPackages), JSON.stringify(project.planning)])
+      const lidarBaselines=await client.query<{id:string;session_data:LidarScanSession|string}&QueryResultRow>('SELECT id,session_data FROM lidar_scan_sessions WHERE tenant_id=$1 AND calculation_id=$2 FOR UPDATE',[context.tenantId,calculationId])
+      for(const row of lidarBaselines.rows){const scan=jsonValue<LidarScanSession>(row.session_data);const baseline:LidarScanSession={...scan,projectId:project.id,purpose:'Nulmeting'};await client.query('UPDATE lidar_scan_sessions SET project_id=$3,purpose=$4,session_data=$5,updated_at=now() WHERE tenant_id=$1 AND id=$2',[context.tenantId,row.id,project.id,'Nulmeting',JSON.stringify(baseline)]);await this.audit(client,context,'lidar_scan',row.id,'promoted_to_baseline',scan,baseline,project.number)}
       await client.query(`UPDATE opportunities SET stage='Gewonnen',probability=100,updated_at=now() WHERE tenant_id=$1 AND id=$2`, [context.tenantId, calculation.opportunityId])
       await this.audit(client, context, 'project', project.id, 'created_from_award', null, project)
       return project
@@ -2919,7 +2922,9 @@ export class BouwFlowRepository {
     const result=await client.query<{session_data:LidarScanSession|string}&QueryResultRow>(`SELECT session_data FROM lidar_scan_sessions WHERE tenant_id=$1 AND id=$2${lock?' FOR UPDATE':''}`,[context.tenantId,id])
     if(!result.rowCount)throw new RepositoryError('LiDAR-scansessie niet gevonden',404)
     const session=jsonValue<LidarScanSession>(result.rows[0].session_data)
-    await this.requireProject(client,context,session.projectId)
+    if(session.projectId)await this.requireProject(client,context,session.projectId)
+    else if(session.calculationId){if(!await this.getCalculation(client,context.tenantId,session.calculationId))throw new RepositoryError('Calculatie bij LiDAR-scan niet gevonden',404)}
+    else throw new RepositoryError('LiDAR-scan heeft geen geldige project- of calculatiecontext',409)
     return session
   }
 
@@ -2929,8 +2934,18 @@ export class BouwFlowRepository {
     return result.rows.map(row=>jsonValue<LidarScanSession>(row.session_data))
   }
 
+  async listCalculationLidarScans(context:RequestContext,calculationId:string):Promise<LidarScanSession[]>{
+    if(!await this.getCalculation(this.pool as unknown as SqlClient,context.tenantId,calculationId))throw new RepositoryError('Calculatie niet gevonden',404)
+    const result=await this.pool.query<{session_data:LidarScanSession|string}&QueryResultRow>('SELECT session_data FROM lidar_scan_sessions WHERE tenant_id=$1 AND calculation_id=$2 ORDER BY updated_at DESC',[context.tenantId,calculationId])
+    return result.rows.map(row=>jsonValue<LidarScanSession>(row.session_data))
+  }
+
   async createLidarScan(context:RequestContext,projectId:string,input:LidarScanInput&{controlPoints?:LidarControlPoint[];observations?:LidarElementObservation[]}):Promise<LidarScanSession>{
-    return this.transaction(async client=>{await this.requireProject(client,context,projectId);if(!input.deviceSupportsLidar)throw new RepositoryError('Dit toestel rapporteert geen ondersteunde LiDAR-sensor',409);const session:LidarScanSession={id:randomUUID(),projectId,...input,status:'Opgenomen',controlPoints:input.controlPoints??[],registration:undefined,artifacts:[],observations:input.observations??[],matches:[],progressProposals:[],bcfTopics:[],asBuiltRevisions:[]};await client.query('INSERT INTO lidar_scan_sessions (tenant_id,id,project_id,session_data) VALUES ($1,$2,$3,$4)',[context.tenantId,session.id,projectId,JSON.stringify(session)]);await this.audit(client,context,'lidar_scan',session.id,'captured',null,session,`${session.modelName} Â· ${session.zone}`);return session})
+    return this.transaction(async client=>{await this.requireProject(client,context,projectId);if(!input.deviceSupportsLidar)throw new RepositoryError('Dit toestel rapporteert geen ondersteunde LiDAR-sensor',409);const session:LidarScanSession={id:randomUUID(),projectId,...input,purpose:input.purpose??'Vorderingsopname',status:'Opgenomen',controlPoints:input.controlPoints??[],registration:undefined,artifacts:[],observations:input.observations??[],matches:[],progressProposals:[],bcfTopics:[],asBuiltRevisions:[],surveyElements:input.surveyElements??[],workAssignments:input.workAssignments??[]};await client.query('INSERT INTO lidar_scan_sessions (tenant_id,id,project_id,purpose,session_data) VALUES ($1,$2,$3,$4,$5)',[context.tenantId,session.id,projectId,session.purpose,JSON.stringify(session)]);await this.audit(client,context,'lidar_scan',session.id,'captured',null,session,`${session.modelName} · ${session.zone}`);return session})
+  }
+
+  async createCalculationLidarScan(context:RequestContext,calculationId:string,input:LidarScanInput&{controlPoints?:LidarControlPoint[];observations?:LidarElementObservation[]}):Promise<LidarScanSession>{
+    return this.transaction(async client=>{const calculation=await this.getCalculation(client,context.tenantId,calculationId);if(!calculation)throw new RepositoryError('Calculatie niet gevonden',404);if(!input.deviceSupportsLidar)throw new RepositoryError('Dit toestel rapporteert geen ondersteunde LiDAR-sensor',409);const session:LidarScanSession={id:randomUUID(),calculationId,opportunityId:calculation.opportunityId,...input,purpose:'Calculatie-opname',status:'Opgenomen',controlPoints:input.controlPoints??[],registration:undefined,artifacts:[],observations:input.observations??[],matches:[],progressProposals:[],bcfTopics:[],asBuiltRevisions:[],surveyElements:input.surveyElements??[],workAssignments:input.workAssignments??[]};await client.query('INSERT INTO lidar_scan_sessions (tenant_id,id,opportunity_id,calculation_id,purpose,session_data) VALUES ($1,$2,$3,$4,$5,$6)',[context.tenantId,session.id,calculation.opportunityId,calculationId,session.purpose,JSON.stringify(session)]);await this.audit(client,context,'lidar_calculation_scan',session.id,'captured',null,session,`${session.modelName} · ${session.zone}`);return session})
   }
 
   async uploadLidarArtifact(context:RequestContext,scanId:string,input:{kind:LidarArtifact['kind'];capturedAt:string},file:{fileName:string;mimeType:string;data:Buffer}):Promise<LidarScanSession>{
@@ -2938,9 +2953,77 @@ export class BouwFlowRepository {
     try{return await this.transaction(async client=>{const current=await this.lidarSession(client,context,scanId,true);if(current.status==='As-built gepubliceerd')throw new RepositoryError('Een gepubliceerde LiDAR-sessie is onveranderlijk',409);const artifact:LidarArtifact={id:artifactId,kind:input.kind,fileName:file.fileName.slice(0,255),mimeType:file.mimeType,sizeBytes:file.data.length,digest:createHash('sha256').update(file.data).digest('hex'),storageKey,capturedAt:input.capturedAt};const updated={...current,artifacts:[...current.artifacts,artifact]};await client.query('UPDATE lidar_scan_sessions SET session_data=$3,updated_at=now() WHERE tenant_id=$1 AND id=$2',[context.tenantId,scanId,JSON.stringify(updated)]);await this.audit(client,context,'lidar_scan',scanId,'artifact_uploaded',current,updated,artifact.fileName);return updated})}catch(error){await this.objectStorage.delete(storageKey);throw error}
   }
 
+  async buildLidarCalculation(context:RequestContext,id:string,elements:LidarSurveyElement[],assignments:LidarWorkAssignment[]):Promise<LidarScanSession>{
+    return this.transaction(async client=>{const current=await this.lidarSession(client,context,id,true);if(!current.calculationId)throw new RepositoryError('Deze LiDAR-scan is niet aan een calculatie gekoppeld',409);const proposal=buildLidarCalculationProposal(id,current.calculationId,elements,assignments);const updated:LidarScanSession={...current,surveyElements:elements,workAssignments:assignments,calculationProposal:proposal,status:'Ter goedkeuring'};await client.query('UPDATE lidar_scan_sessions SET session_data=$3,updated_at=now() WHERE tenant_id=$1 AND id=$2',[context.tenantId,id,JSON.stringify(updated)]);await this.audit(client,context,'lidar_calculation_scan',id,'proposal_built',current,updated,`${proposal.items.length} calculatieposten · € ${proposal.directCost}`);return updated})
+  }
+
+  async approveLidarCalculation(context:RequestContext,id:string,approvedBy:string):Promise<LidarScanSession>{
+    return this.transaction(async client=>{const current=await this.lidarSession(client,context,id,true);if(!current.calculationProposal)throw new RepositoryError('Maak eerst een LiDAR-calculatievoorstel',409);const calculationProposal=approveLidarCalculationProposal(current.calculationProposal,approvedBy);const updated:LidarScanSession={...current,calculationProposal,status:'Goedgekeurd'};await client.query('UPDATE lidar_scan_sessions SET session_data=$3,updated_at=now() WHERE tenant_id=$1 AND id=$2',[context.tenantId,id,JSON.stringify(updated)]);await this.audit(client,context,'lidar_calculation_scan',id,'proposal_approved',current,updated,approvedBy);return updated})
+  }
+
+  async applyLidarCalculation(context:RequestContext,id:string):Promise<LidarScanSession>{
+    return this.transaction(async client=>{
+      const current=await this.lidarSession(client,context,id,true)
+      const proposal=current.calculationProposal
+      if(!current.calculationId||!proposal)throw new RepositoryError('LiDAR-calculatievoorstel niet gevonden',409)
+      if(proposal.status==='Toegepast')return current
+      if(proposal.status!=='Goedgekeurd')throw new RepositoryError('Keur het LiDAR-calculatievoorstel eerst goed',409)
+      const calculation=await this.getCalculation(client,context.tenantId,current.calculationId)
+      if(!calculation)throw new RepositoryError('Calculatie niet gevonden',404)
+      const chapters=new Map(calculation.chapters.map(item=>[item.name,item]))
+      const existingCodes=new Set(calculation.items.map(item=>item.code))
+      let chapterOrder=calculation.chapters.length
+      let itemOrder=calculation.items.length
+      const createdItemIds:string[]=[]
+      for(const proposed of proposal.items){
+        let chapter=chapters.get(proposed.discipline)
+        if(!chapter){const code=`L-${proposed.catalogCode.split('-')[0]}`;chapter={id:randomUUID(),code,name:proposed.discipline,sortOrder:chapterOrder++};await client.query('INSERT INTO boq_chapters (tenant_id,id,calculation_id,code,name,sort_order) VALUES ($1,$2,$3,$4,$5,$6)',[context.tenantId,chapter.id,current.calculationId,chapter.code,chapter.name,chapter.sortOrder]);chapters.set(chapter.name,chapter)}
+        let code=proposed.boqItem.code
+        if(existingCodes.has(code)){let sequence=2;while(existingCodes.has(`${code}.${sequence}`))sequence+=1;code=`${code}.${sequence}`}
+        existingCodes.add(code)
+        const item:BoqItem={...proposed.boqItem,id:randomUUID(),chapterId:chapter.id,sortOrder:itemOrder++}
+        item.code=code
+        await client.query(`INSERT INTO boq_items (tenant_id,id,calculation_id,chapter_id,code,description,quantity,unit,labor,material,equipment,subcontracting,advanced,sort_order) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,[context.tenantId,item.id,current.calculationId,chapter.id,item.code,item.description,item.quantity,item.unit,item.labor,item.material,item.equipment,item.subcontracting,JSON.stringify(itemAdvanced(item)),item.sortOrder])
+        createdItemIds.push(item.id)
+        await this.audit(client,context,'boq_item',item.id,'created_from_lidar',null,item,`${current.zone} · scan ${id}`)
+      }
+      await client.query('UPDATE calculations SET updated_at=now() WHERE tenant_id=$1 AND id=$2',[context.tenantId,current.calculationId])
+      const calculationProposal={...proposal,status:'Toegepast' as const,appliedAt:new Date().toISOString(),createdItemIds}
+      const updated:LidarScanSession={...current,calculationProposal,status:'Goedgekeurd'}
+      await client.query('UPDATE lidar_scan_sessions SET session_data=$3,updated_at=now() WHERE tenant_id=$1 AND id=$2',[context.tenantId,id,JSON.stringify(updated)])
+      await this.audit(client,context,'lidar_calculation_scan',id,'proposal_applied',current,updated,`${createdItemIds.length} posten toegevoegd aan ${calculation.number}`)
+      return updated
+    })
+  }
+
   async registerLidarSession(context:RequestContext,id:string,controlPoints:LidarControlPoint[],registeredBy:string):Promise<LidarScanSession>{return this.transaction(async client=>{const current=await this.lidarSession(client,context,id,true);if(current.status==='As-built gepubliceerd')throw new RepositoryError('Een gepubliceerde LiDAR-sessie is onveranderlijk',409);const registration=registerLidarScan(controlPoints,registeredBy);const updated:LidarScanSession={...current,controlPoints,registration,status:'Uitgelijnd'};await client.query('UPDATE lidar_scan_sessions SET session_data=$3,updated_at=now() WHERE tenant_id=$1 AND id=$2',[context.tenantId,id,JSON.stringify(updated)]);await this.audit(client,context,'lidar_scan',id,'registered',current,updated,`${registration.rmsErrorMm} mm RMS`);return updated})}
 
-  async analyzeLidarSession(context:RequestContext,id:string,observations:LidarElementObservation[]):Promise<LidarScanSession>{return this.transaction(async client=>{const current=await this.lidarSession(client,context,id,true);if(!current.registration)throw new RepositoryError('Lijn de scan eerst uit met minstens drie controlepunten',409);const projectResult=await client.query<ProjectRow>('SELECT * FROM projects WHERE tenant_id=$1 AND id=$2',[context.tenantId,current.projectId]);const project=this.mapProject(projectResult.rows[0]);const matches=analyzeLidarObservations(observations);const progressProposals=buildLidarProgressProposals(id,matches,project.workPackages);if(!progressProposals.length)throw new RepositoryError('Geen scanobjecten konden aan projectwerkpakketten worden gekoppeld',409);const updated:LidarScanSession={...current,observations,matches,progressProposals,status:progressProposals.some(item=>item.reviewReasons.length)?'Ter goedkeuring':'Geanalyseerd'};await client.query('UPDATE lidar_scan_sessions SET session_data=$3,updated_at=now() WHERE tenant_id=$1 AND id=$2',[context.tenantId,id,JSON.stringify(updated)]);await this.audit(client,context,'lidar_scan',id,'analyzed',current,updated,`${matches.length} IFC-objecten`);return updated})}
+  async analyzeLidarSession(context:RequestContext,id:string,observations:LidarElementObservation[]):Promise<LidarScanSession>{
+    return this.transaction(async client=>{
+      const current=await this.lidarSession(client,context,id,true)
+      if(!current.projectId)throw new RepositoryError('Een vorderingsanalyse vereist een gegund project',409)
+      if(!current.registration)throw new RepositoryError('Lijn de scan eerst uit met minstens drie controlepunten',409)
+      const dailyReportIds=[...new Set(observations.flatMap(item=>item.dailyReportIds??[]))]
+      if(dailyReportIds.length){
+        const reports=await client.query<{id:string}&QueryResultRow>("SELECT id FROM daily_reports WHERE tenant_id=$1 AND project_id=$2 AND status='Ondertekend' AND id=ANY($3::uuid[])",[context.tenantId,current.projectId,dailyReportIds])
+        if(reports.rowCount!==dailyReportIds.length)throw new RepositoryError('Gebruik alleen ondertekende dagrapporten van dit project als LiDAR-bewijs',409)
+      }
+      const inspectionDocumentIds=[...new Set(observations.flatMap(item=>item.inspectionDocumentIds??[]))]
+      if(inspectionDocumentIds.length){
+        const documents=await client.query<{id:string}&QueryResultRow>("SELECT id FROM documents WHERE tenant_id=$1 AND project_id=$2 AND status='Goedgekeurd' AND id=ANY($3::uuid[])",[context.tenantId,current.projectId,inspectionDocumentIds])
+        if(documents.rowCount!==inspectionDocumentIds.length)throw new RepositoryError('Gebruik alleen goedgekeurde keuringsdocumenten van dit project als LiDAR-bewijs',409)
+      }
+      const projectResult=await client.query<ProjectRow>('SELECT * FROM projects WHERE tenant_id=$1 AND id=$2',[context.tenantId,current.projectId])
+      const project=this.mapProject(projectResult.rows[0])
+      const matches=analyzeLidarObservations(observations)
+      const progressProposals=buildLidarProgressProposals(id,matches,project.workPackages)
+      if(!progressProposals.length)throw new RepositoryError('Geen scanobjecten konden aan projectwerkpakketten worden gekoppeld',409)
+      const updated:LidarScanSession={...current,observations,matches,progressProposals,status:progressProposals.some(item=>item.reviewReasons.length)?'Ter goedkeuring':'Geanalyseerd'}
+      await client.query('UPDATE lidar_scan_sessions SET session_data=$3,updated_at=now() WHERE tenant_id=$1 AND id=$2',[context.tenantId,id,JSON.stringify(updated)])
+      await this.audit(client,context,'lidar_scan',id,'analyzed',current,updated,`${matches.length} IFC-objecten`)
+      return updated
+    })
+  }
 
   async approveLidarProgress(context:RequestContext,id:string,proposalId:string,approvedBy:string):Promise<LidarScanSession>{return this.transaction(async client=>{const current=await this.lidarSession(client,context,id,true);const proposal=current.progressProposals.find(item=>item.id===proposalId);if(!proposal)throw new RepositoryError('LiDAR-vorderingsvoorstel niet gevonden',404);const approved=approveLidarProposal(proposal,approvedBy);const progressProposals=current.progressProposals.map(item=>item.id===proposalId?approved:item);const updated:LidarScanSession={...current,progressProposals,status:progressProposals.every(item=>['Goedgekeurd','Afgekeurd'].includes(item.status))?'Goedgekeurd':'Ter goedkeuring'};await client.query('UPDATE lidar_scan_sessions SET session_data=$3,updated_at=now() WHERE tenant_id=$1 AND id=$2',[context.tenantId,id,JSON.stringify(updated)]);await this.audit(client,context,'lidar_scan',id,'progress_approved',current,updated,proposal.workPackageName);return updated})}
 

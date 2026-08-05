@@ -7,6 +7,8 @@ facturatie en nacalculatie. De formele dekking van alle 18 MVP-onderdelen staat 
 [de MVP-acceptatiematrix](docs/MVP_ACCEPTANCE.md).
 De technische en operationele poorten voor een gecontroleerde livegang staan in
 [de productie-readinesschecklist](docs/PRODUCTION_READINESS.md).
+Het volledige handmatige scenario van klant tot afgesloten multi-companyproject
+staat in [de end-to-end acceptatietest](docs/END_TO_END_ACCEPTATIETEST.md).
 
 ## Inbegrepen
 

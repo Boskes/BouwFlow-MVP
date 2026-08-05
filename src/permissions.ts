@@ -12,7 +12,8 @@ const operations = ['Administrator', 'Directie', 'Projectdirecteur', 'Projectman
 const financial = ['Administrator', 'Directie', 'Projectdirecteur', 'Projectmanager', 'Aankoper', 'Financiële administratie']
 
 export const pageRoleAccess: Record<Page, ReadonlySet<string>> = {
-  dashboard: roles(...allInternalRoles),
+  dashboard: roles(...allInternalRoles, 'Klant', 'Onderaannemer', 'Leverancier'),
+  'my-work': roles(...allInternalRoles, 'Klant', 'Onderaannemer', 'Leverancier'),
   dossiers: roles(...allInternalRoles),
   crm: roles('Administrator', 'Directie', 'Commercieel medewerker', 'Tender manager', 'Calculator', 'Projectdirecteur'),
   opportunities: roles('Administrator', 'Directie', 'Commercieel medewerker', 'Tender manager', 'Calculator', 'Projectdirecteur'),

@@ -8,6 +8,8 @@ import type { Asset, AssetInput, AssetOperationalInput, InventoryCountInput, Inv
 import type { AiAnalysis, AiAnalysisInput, CheckinatworkCancellationReason, CheckinatworkParticipant, CheckinatworkParticipantInput, CheckinatworkRegistration, CheckinatworkRegistrationInput, CheckinatworkSite, CheckinatworkSiteInput, Employee, EmployeeAbsence, EmployeeAbsenceDecisionInput, EmployeeAbsenceInput, EmployeeCrew, EmployeeCrewInput, EmployeeInput, IntegrationConnection, IntegrationConnectionInput, IntegrationJob, IntegrationJobInput, JointVenture, JointVentureInput, ProjectClaim, ProjectClaimInput, ProjectCloseout, ProjectCloseoutInput, ProjectContract, ProjectContractInput, ProjectContractUpdateInput, QhseEvent, QhseEventInput, Subcontractor, SubcontractorInput, SubcontractorOperationInput, TimeEntry, TimeEntryInput, WorkTicket, WorkTicketInput } from './domain'
 import { canQueueOffline, countQueuedMutations, enqueueMutation, queuedMutations, removeQueuedMutation, updateQueuedMutation } from './offline-queue'
 import type { LidarArtifact, LidarBcfTopic, LidarControlPoint, LidarElementObservation, LidarScanInput, LidarScanSession } from './lidar-bim'
+import type { LidarSurveyElement, LidarWorkAssignment } from './lidar-calculation'
+import type { WorkReminderInput, WorkReminderResult } from './domain'
 
 type FetchLike = (input: string | URL | Request, init?: RequestInit) => Promise<Response>
 type TokenProvider = () => Promise<string | undefined>
@@ -55,6 +57,7 @@ export class BouwFlowApi {
   sendMailboxMessage(input:MailboxComposeInput){return this.request<MailboxMessage>('/api/mailbox/send',{method:'POST',body:JSON.stringify(input)})}
   replyMailboxMessage(id:string,input:MailboxReplyInput){return this.request<{sent:true}>(`/api/mailbox/messages/${encodeURIComponent(id)}/reply`,{method:'POST',body:JSON.stringify(input)})}
   linkMailboxMessage(id:string,input:MailboxLinkInput){return this.request<MailboxMessage>(`/api/mailbox/messages/${encodeURIComponent(id)}/link`,{method:'PATCH',body:JSON.stringify(input)})}
+  sendWorkReminder(input:WorkReminderInput){return this.request<WorkReminderResult>('/api/work-reminders/send',{method:'POST',body:JSON.stringify(input)})}
 
   setDemoUser(userId?: string) {
     this.demoUserId = userId
@@ -270,13 +273,18 @@ export class BouwFlowApi {
   }
 
   listLidarScans(projectId:string){return this.request<LidarScanSession[]>(`/api/projects/${encodeURIComponent(projectId)}/lidar-scans`)}
+  listCalculationLidarScans(calculationId:string){return this.request<LidarScanSession[]>(`/api/calculations/${encodeURIComponent(calculationId)}/lidar-scans`)}
   createLidarScan(projectId:string,input:LidarScanInput&{controlPoints?:LidarControlPoint[];observations?:LidarElementObservation[]}){return this.request<LidarScanSession>(`/api/projects/${encodeURIComponent(projectId)}/lidar-scans`,{method:'POST',body:JSON.stringify(input)})}
+  createCalculationLidarScan(calculationId:string,input:LidarScanInput&{controlPoints?:LidarControlPoint[];observations?:LidarElementObservation[]}){return this.request<LidarScanSession>(`/api/calculations/${encodeURIComponent(calculationId)}/lidar-scans`,{method:'POST',body:JSON.stringify(input)})}
   registerLidarScan(scanId:string,controlPoints:LidarControlPoint[],registeredBy:string){return this.request<LidarScanSession>(`/api/lidar-scans/${encodeURIComponent(scanId)}/register`,{method:'POST',body:JSON.stringify({controlPoints,registeredBy})})}
   analyzeLidarScan(scanId:string,observations:LidarElementObservation[]){return this.request<LidarScanSession>(`/api/lidar-scans/${encodeURIComponent(scanId)}/analyze`,{method:'POST',body:JSON.stringify({observations})})}
   approveLidarProposal(scanId:string,proposalId:string,approvedBy:string){return this.request<LidarScanSession>(`/api/lidar-scans/${encodeURIComponent(scanId)}/proposals/${encodeURIComponent(proposalId)}/approve`,{method:'POST',body:JSON.stringify({approvedBy})})}
   createLidarBcfTopic(scanId:string,input:Omit<LidarBcfTopic,'id'|'scanSessionId'|'status'|'createdAt'>){return this.request<LidarScanSession>(`/api/lidar-scans/${encodeURIComponent(scanId)}/bcf-topics`,{method:'POST',body:JSON.stringify(input)})}
   publishLidarAsBuilt(scanId:string,createdBy:string){return this.request<LidarScanSession>(`/api/lidar-scans/${encodeURIComponent(scanId)}/as-built`,{method:'POST',body:JSON.stringify({createdBy})})}
   uploadLidarArtifact(scanId:string,file:File,input:{kind:LidarArtifact['kind'];capturedAt:string}){const body=new FormData();body.append('kind',input.kind);body.append('capturedAt',input.capturedAt);body.append('file',file,file.name);return this.request<LidarScanSession>(`/api/lidar-scans/${encodeURIComponent(scanId)}/artifacts`,{method:'POST',body})}
+  buildLidarCalculationProposal(scanId:string,elements:LidarSurveyElement[],assignments:LidarWorkAssignment[]){return this.request<LidarScanSession>(`/api/lidar-scans/${encodeURIComponent(scanId)}/calculation-proposal`,{method:'POST',body:JSON.stringify({elements,assignments})})}
+  approveLidarCalculationProposal(scanId:string,approvedBy:string){return this.request<LidarScanSession>(`/api/lidar-scans/${encodeURIComponent(scanId)}/calculation-proposal/approve`,{method:'POST',body:JSON.stringify({approvedBy})})}
+  applyLidarCalculationProposal(scanId:string){return this.request<LidarScanSession>(`/api/lidar-scans/${encodeURIComponent(scanId)}/calculation-proposal/apply`,{method:'POST'})}
 
   uploadSitePhoto(reportId: string, file: File, input: SitePhotoInput) {
     const body = new FormData()

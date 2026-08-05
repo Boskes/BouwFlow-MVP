@@ -43,6 +43,11 @@ describe('LiDAR BIM-vorderingsflow',()=>{
   it('blokkeert automatische goedkeuring bij slechte zichtbaarheid of toleranties',()=>{
     const [match]=analyzeLidarObservations([{...observations[0],visibilityPct:40,deviationMm:55}])
     expect(match.autoApprovable).toBe(false)
-    expect(match.reviewReasons).toHaveLength(2)
+    expect(match.reviewReasons).toEqual(expect.arrayContaining([
+      'Minder dan 60% zichtbaar in de opname',
+      'Geometrische afwijking groter dan 30 mm',
+      'Goedgekeurd dagrapport ontbreekt voor een onzekere meting',
+      'Manuele bevestiging ontbreekt voor een onzekere meting',
+    ]))
   })
 })

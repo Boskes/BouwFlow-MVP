@@ -56,6 +56,7 @@ import {
   RotateCcw,
   Redo2,
   Search,
+  ScanLine,
   Send,
   Settings,
   Star,
@@ -88,6 +89,7 @@ const BoqItemAdvancedDialog = lazy(() => import('./FormulaBuilderDialog').then(m
 const BimIfcViewer = lazy(() => import('./BimIfcViewer'))
 const FamilyHomeBimViewer = lazy(() => import('./FamilyHomeBimViewer'))
 const BimProgressDialog = lazy(() => import('./BimProgressDialog'))
+const LidarCalculationWorkspace = lazy(() => import('./LidarCalculationWorkspace'))
 const ProgressMeasurementDialog = lazy(() => import('./ProgressMeasurementDialog'))
 const MailboxPage = lazy(() => import('./MailboxPage'))
 const DossierEmailTab = lazy(() => import('./DossierEmailTab'))
@@ -181,6 +183,7 @@ import {
   type LegalEntity,
   type LegalEntityFinancialInput,
   type LegalEntityInput,
+  type MailboxOverview,
   type Opportunity,
   type OpportunityDetailsInput,
   type OpportunityGoNoGoInput,
@@ -259,9 +262,14 @@ import { pageForDossier, workspacePath, workspaceRouteFromLocation, writeWorkspa
 import { canAccessPage } from "./permissions";
 import { invoiceExportReadiness, type InvoiceExportContext } from "./invoice-readiness";
 import { downloadInvoiceFile } from "./download";
+import { appendWorkAudit, defaultWorkCenterPreferences, deriveAllWorkItems, normalizeWorkCenterPreferences, workItemsForUser, type WorkCenterPreferences, type WorkItem } from './work-center'
+
+const MyWorkPage = lazy(() => import('./WorkCenter').then(module => ({ default: module.MyWorkPage })))
+const RoleDashboard = lazy(() => import('./WorkCenter').then(module => ({ default: module.RoleDashboard })))
 
 const nav = [
   { id: "dashboard" as Page, label: "Dashboard", icon: LayoutDashboard },
+  { id: "my-work" as Page, label: "Mijn werk", icon: ListChecks },
   { id: "dossiers" as Page, label: "Dossiers", icon: FolderOpen },
   { id: "crm" as Page, label: "CRM & Relaties", icon: Users },
   {
@@ -321,7 +329,7 @@ const navigationGroups: NavigationGroup[] = [
 ];
 
 const navByPage = new Map(nav.map((item) => [item.id, item]));
-const quickNavigationPages = new Set<Page>(["dashboard", "dossiers"]);
+const quickNavigationPages = new Set<Page>(["dashboard", "my-work", "dossiers"]);
 
 const money = (value: number) =>
   new Intl.NumberFormat("nl-BE", {
@@ -2303,10 +2311,16 @@ function App() {
     }
   });
   const dossierPreferenceStorageKey = `bouwflow-dossiers-v1:${dossierPreferenceUser}`;
+  const workPreferenceStorageKey = `bouwflow-work-center-v1:${dossierPreferenceUser}`;
   const [dossierPreferences, setDossierPreferences] = useState<DossierPreferences>(() => {
     if (typeof window === "undefined") return emptyDossierPreferences;
     try { return { ...emptyDossierPreferences, ...JSON.parse(localStorage.getItem(dossierPreferenceStorageKey) ?? "{}") }; } catch { return emptyDossierPreferences; }
   });
+  const [workPreferences, setWorkPreferences] = useState<WorkCenterPreferences>(() => {
+    if (typeof window === "undefined") return defaultWorkCenterPreferences;
+    try { return normalizeWorkCenterPreferences(JSON.parse(localStorage.getItem(workPreferenceStorageKey) ?? "{}")); } catch { return defaultWorkCenterPreferences; }
+  });
+  const [workMailbox, setWorkMailbox] = useState<MailboxOverview>({ configured: false, mailbox: "", messages: [] });
   useEffect(() => {
     let active = true;
     const localValue = localStorage.getItem(sidebarPreferenceStorageKey) === "true";
@@ -2379,6 +2393,31 @@ function App() {
       return next;
     });
   }, [actions, dossierPreferenceStorageKey]);
+  useEffect(() => {
+    let active = true;
+    try {
+      const cached = JSON.parse(localStorage.getItem(workPreferenceStorageKey) ?? "{}") as Partial<WorkCenterPreferences>;
+      setWorkPreferences(normalizeWorkCenterPreferences(cached));
+    } catch { setWorkPreferences(defaultWorkCenterPreferences); }
+    void actions.loadUserPreference<WorkCenterPreferences>("work-center-v1").then((value) => {
+      if (!active || !value) return;
+      const normalized = normalizeWorkCenterPreferences(value);
+      setWorkPreferences(normalized);
+      localStorage.setItem(workPreferenceStorageKey, JSON.stringify(normalized));
+    });
+    return () => { active = false; };
+  }, [actions, workPreferenceStorageKey]);
+  useEffect(() => {
+    let active = true;
+    if (!['dashboard', 'my-work'].includes(page)) return () => { active = false; };
+    void actions.mailbox().then(value => { if (active) setWorkMailbox(value); });
+    return () => { active = false; };
+  }, [actions, page]);
+  const updateWorkPreferences = useCallback((value: WorkCenterPreferences) => {
+    setWorkPreferences(value);
+    localStorage.setItem(workPreferenceStorageKey, JSON.stringify(value));
+    void actions.saveUserPreference("work-center-v1", value);
+  }, [actions, workPreferenceStorageKey]);
   const navigateRoute = useCallback((next: WorkspaceRoute, replace = false) => {
     setRoute(writeWorkspaceRoute(next, replace));
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -2414,7 +2453,7 @@ function App() {
   const loadTablePreference = useCallback((key: string) => actions.loadUserPreference<TablePreference>(key), [actions]);
   const saveTablePreference = useCallback((key: string, value: TablePreference) => actions.saveUserPreference(key, value), [actions]);
   usePersonalizedTables(contentRef, page, state.currentUserId || auth.accountUsername || "local-user", query, loadTablePreference, saveTablePreference);
-  const companyScopeVisible = new Set<Page>(["dashboard","opportunities","calculations","cost-library","projects","planning","hr","resources","site","changes","financial","control","procurement","cashflow","post-calculation","documents","qhse","subcontractors","ai","closeout"]).has(page);
+  const companyScopeVisible = new Set<Page>(["dashboard","my-work","opportunities","calculations","cost-library","projects","planning","hr","resources","site","changes","financial","control","procurement","cashflow","post-calculation","documents","qhse","subcontractors","ai","closeout"]).has(page);
 
   useEffect(() => {
     const handlePopState = () => setRoute(workspaceRouteFromLocation(window.location));
@@ -2435,19 +2474,95 @@ function App() {
     [presentationState, legalEntityFilter, branchFilter],
   );
   const currentCompanyUser = presentationState.companyUsers.find((item) => item.id === presentationState.currentUserId);
-  const visibleNav = nav.filter((item) => canAccessPage(currentCompanyUser?.role, item.id));
+  const performWorkItemAction = useCallback(async (item: WorkItem) => {
+    const actor = currentCompanyUser?.displayName ?? auth.accountName ?? "BouwFlow gebruiker";
+    if (item.action === "complete-personal-task") {
+      const completedAt = new Date().toISOString();
+      const personalId = item.id.replace(/^personal:/, "");
+      const next = appendWorkAudit({ ...normalizeWorkCenterPreferences(workPreferences), personalTasks: normalizeWorkCenterPreferences(workPreferences).personalTasks.map(task => task.id === personalId ? { ...task, completedAt } : task) }, { taskId: item.id, action: "Afgehandeld", actor, detail: item.title });
+      updateWorkPreferences(next);
+      return;
+    }
+    switch (item.action) {
+      case "qualify-opportunity": await actions.qualifyOpportunity(item.sourceId); break;
+      case "approve-quote": await actions.approveQuote(item.sourceId, actor); break;
+      case "sign-quote": await actions.signQuote(item.sourceId, actor); break;
+      case "submit-daily-report": await actions.submitDailyReport(item.sourceId); break;
+      case "sign-daily-report": await actions.signDailyReport(item.sourceId, actor); break;
+      case "submit-document": await actions.submitDocument(item.sourceId); break;
+      case "approve-document": await actions.approveDocument(item.sourceId, actor); break;
+      case "close-qhse-inspection": await actions.closeQhseInspection(item.sourceId); break;
+      case "submit-progress-statement": await actions.submitProgressStatement(item.sourceId); break;
+      case "approve-progress-statement": await actions.approveProgressStatement(item.sourceId, actor); break;
+      case "approve-procurement-request": await actions.approveProcurementRequest(item.sourceId); break;
+      case "submit-work-ticket": await actions.submitWorkTicket(item.sourceId); break;
+      case "sign-work-ticket": await actions.signWorkTicket(item.sourceId, actor); break;
+      case "submit-time-entry": await actions.submitTimeEntry(item.sourceId); break;
+      case "approve-time-entry": await actions.decideTimeEntry(item.sourceId, "Goedgekeurd"); break;
+      case "reject-time-entry": await actions.decideTimeEntry(item.sourceId, "Geweigerd"); break;
+      case "approve-absence": await actions.decideEmployeeAbsence(item.sourceId, { status: "Goedgekeurd", decidedBy: actor }); break;
+      case "reject-absence": await actions.decideEmployeeAbsence(item.sourceId, { status: "Geweigerd", decidedBy: actor }); break;
+      case "calculate-change-order": await actions.calculateChangeOrder(item.sourceId); break;
+      case "submit-change-order": await actions.submitChangeOrder(item.sourceId); break;
+      case "approve-change-order": await actions.approveChangeOrder(item.sourceId, actor); break;
+      case "execute-change-order": await actions.executeChangeOrder(item.sourceId); break;
+      case "submit-contract": await actions.submitProjectContract(item.sourceId); break;
+      case "approve-contract": await actions.approveProjectContract(item.sourceId); break;
+      case "complete-contract-obligation": if (item.actionTargetId) await actions.completeContractObligation(item.sourceId, item.actionTargetId); break;
+      case "customer-sign-closeout": await actions.customerSignProjectCloseout(item.sourceId); break;
+      case "close-qhse-event": await actions.closeQhseEvent(item.sourceId); break;
+      case "approve-project-claim": await actions.transitionProjectClaim(item.sourceId, "approve"); break;
+      case "submit-project-claim": await actions.transitionProjectClaim(item.sourceId, "submit"); break;
+      case "accept-project-claim": await actions.transitionProjectClaim(item.sourceId, "accept"); break;
+      case "reject-project-claim": await actions.transitionProjectClaim(item.sourceId, "reject"); break;
+      default: break;
+    }
+    if (item.action) {
+      const completedAt = new Date().toISOString();
+      const next = appendWorkAudit({ ...normalizeWorkCenterPreferences(workPreferences), completedItems: [{ item: { ...item, status: "Afgehandeld" as const, completedAt }, completedAt, completedBy: actor }, ...normalizeWorkCenterPreferences(workPreferences).completedItems].slice(0, 150) }, { taskId: item.id, action: "Uitgevoerd", actor, detail: item.actionLabel ?? item.action });
+      updateWorkPreferences(next);
+    }
+  }, [actions, auth.accountName, currentCompanyUser?.displayName, updateWorkPreferences, workPreferences]);
+  const sendWorkItemReminder = useCallback(async (item: WorkItem, channels: Array<'BouwFlow' | 'E-mail' | 'Teams'>) => {
+    const normalized = normalizeWorkCenterPreferences(workPreferences);
+    const recipient = scopedState.companyUsers.find(user => user.id === item.ownerUserId) ?? currentCompanyUser;
+    const message = `${item.title}\n\n${item.description}\nDeadline: ${item.dueDate ? new Date(item.dueDate).toLocaleDateString('nl-BE') : 'geen deadline'}\nProject/dossier: ${item.projectName ?? item.sourceLabel}\n\nOpen BouwFlow om de taak rechtstreeks uit te voeren.`;
+    const delivered: string[] = [];
+    if (channels.includes('BouwFlow')) delivered.push('BouwFlow');
+    if (channels.includes('E-mail') && recipient?.email) {
+      const result = await actions.sendWorkReminder({ taskId: item.id, title: item.title, message, channel: 'E-mail', destination: recipient.email });
+      if (result) delivered.push('E-mail');
+    }
+    const teamsTarget = scopedState.peppolNotificationSettings.teamsTargets[0];
+    if (channels.includes('Teams') && teamsTarget) {
+      const result = await actions.sendWorkReminder({ taskId: item.id, title: item.title, message, channel: 'Teams', destination: teamsTarget });
+      if (result) delivered.push('Teams');
+    }
+    const next = appendWorkAudit(normalized, { taskId: item.id, action: 'Herinnering verzonden', actor: currentCompanyUser?.displayName ?? auth.accountName ?? 'BouwFlow gebruiker', detail: delivered.length ? delivered.join(', ') : 'Geen actief kanaal beschikbaar' });
+    updateWorkPreferences(next);
+  }, [actions, auth.accountName, currentCompanyUser, scopedState.companyUsers, scopedState.peppolNotificationSettings.teamsTargets, updateWorkPreferences, workPreferences]);
+  const uploadWorkItemDocument = useCallback(async (item: WorkItem, file: File) => {
+    if (!item.projectId) return;
+    await actions.uploadDocument(item.projectId, file, { title: `${item.sourceLabel} · ${file.name}`, category: item.module === 'QHSE' ? 'Veiligheid' : 'Verslag', notes: `Rechtstreeks aangeleverd vanuit Mijn werk voor taak ${item.title}.`, uploadedBy: currentCompanyUser?.displayName ?? auth.accountName ?? 'BouwFlow gebruiker' });
+    const next = appendWorkAudit(normalizeWorkCenterPreferences(workPreferences), { taskId: item.id, action: 'Document opgeladen', actor: currentCompanyUser?.displayName ?? auth.accountName ?? 'BouwFlow gebruiker', detail: file.name });
+    updateWorkPreferences(next);
+  }, [actions, auth.accountName, currentCompanyUser?.displayName, updateWorkPreferences, workPreferences]);
+  const currentWorkItems = useMemo(() => workItemsForUser(deriveAllWorkItems(scopedState, new Date().toISOString().slice(0, 10), workMailbox.messages), scopedState, currentCompanyUser, workPreferences), [currentCompanyUser, scopedState, workMailbox.messages, workPreferences]);
+  const currentWorkBadge = currentWorkItems.filter(item => item.status !== "Afgehandeld" && item.status !== "Ter informatie").length;
+  const currentEffectiveRoles = [...new Set([currentCompanyUser?.role, ...(currentCompanyUser?.roles ?? [])].filter(Boolean) as string[])];
+  const visibleNav = nav.filter((item) => currentEffectiveRoles.some(role => canAccessPage(role, item.id)));
   const activeNavigationGroup = navigationGroups.find((group) => group.pageIds.includes(page));
   const moduleWorkspaceGroup = activeNavigationGroup ?? {
     id: "start",
     label: "Start",
     icon: LayoutDashboard,
-    pageIds: ["dashboard", "dossiers"] as Page[],
+    pageIds: ["dashboard", "my-work", "dossiers"] as Page[],
   };
   const moduleWorkspaceItems = moduleWorkspaceGroup.pageIds
     .map((id) => visibleNav.find((item) => item.id === id))
     .filter(Boolean) as ModuleWorkspaceItem[];
-  const pageAllowed = canAccessPage(currentCompanyUser?.role, page) || canExternalAccessDossier(presentationState,currentCompanyUser,route.dossierType,route.dossierId);
-  const roleHomePage: Page = currentCompanyUser?.role === "Klant" ? "client-portal" : currentCompanyUser?.role === "Onderaannemer" ? "subcontractor-portal" : currentCompanyUser?.role === "Leverancier" ? "supplier-portal" : "dashboard";
+  const pageAllowed = currentEffectiveRoles.some(role => canAccessPage(role, page)) || canExternalAccessDossier(presentationState,currentCompanyUser,route.dossierType,route.dossierId);
+  const roleHomePage: Page = "dashboard";
   const demoAdministrator = state.companyUsers.find((item) => item.role === "Administrator" && item.status !== "Geblokkeerd");
   const switchDemoSession = (userId: string) => {
     const target = state.companyUsers.find((item) => item.id === userId && item.status !== "Geblokkeerd");
@@ -2457,8 +2572,7 @@ function App() {
     setBranchFilter("");
     setQuery("");
     setMobileOpen(false);
-    const targetHome: Page = target.role === "Klant" ? "client-portal" : target.role === "Onderaannemer" ? "subcontractor-portal" : target.role === "Leverancier" ? "supplier-portal" : "dashboard";
-    navigateRoute({ page: targetHome }, true);
+    navigateRoute({ page: "dashboard" }, true);
   };
   const switchProfilePreview = async (userId?: string) => {
     if (!canUseProfilePreview || profilePreviewSwitching) return;
@@ -2471,21 +2585,11 @@ function App() {
     setQuery("");
     try {
       await actions.switchApiDemoUser(userId);
-      const targetHome: Page = target?.role === "Klant"
-        ? "client-portal"
-        : target?.role === "Onderaannemer"
-          ? "subcontractor-portal"
-          : target?.role === "Leverancier"
-            ? "supplier-portal"
-            : target?.role === "Werfleider"
-              ? "site"
-              : "dashboard";
-      navigateRoute({ page: targetHome }, true);
+      navigateRoute({ page: "dashboard" }, true);
     } finally {
       setProfilePreviewSwitching(false);
     }
   };
-  useEffect(() => { if (page === "dashboard" && roleHomePage !== "dashboard") setPage(roleHomePage); }, [page, roleHomePage, setPage]);
   const filteredOpportunities = scopedState.opportunities.filter((opportunity) => {
     const client = organizations.get(opportunity.organizationId)?.name ?? "";
     return `${opportunity.title} ${opportunity.projectNumber} ${client}`
@@ -2561,6 +2665,7 @@ function App() {
     >
       <Icon size={18}/>
       <span>{item.label}</span>
+      {item.id === "my-work" && currentWorkBadge > 0 && <b className="nav-work-badge" aria-label={`${currentWorkBadge} open taken`}>{currentWorkBadge > 99 ? "99+" : currentWorkBadge}</b>}
       {"onHold" in item && item.onHold && <small>On hold</small>}
     </button>;
   };
@@ -2780,13 +2885,23 @@ function App() {
             />
           ) : <>
           {page === "dashboard" && (
-            <Dashboard
-              state={scopedState}
-              organizations={organizations}
-              navigate={setPage}
-              onOpenDossier={openDossier}
-            />
+            ["Administrator", "Directie"].includes(currentCompanyUser?.role ?? "")
+              ? <LegacyExecutiveDashboard state={scopedState} organizations={organizations} navigate={setPage} onOpenDossier={openDossier}/>
+              : <Suspense fallback={<section className="panel"><p className="muted">Persoonlijk dashboard laden…</p></section>}><RoleDashboard state={scopedState} user={currentCompanyUser} preferences={workPreferences} mailboxMessages={workMailbox.messages} onNavigate={setPage} onOpen={openDossier} onOpenNewTab={openDossierNewTab} onAction={performWorkItemAction} onSendReminder={sendWorkItemReminder}/></Suspense>
           )}
+          {page === "my-work" && <Suspense fallback={<section className="panel"><p className="muted">Mijn werk laden…</p></section>}><MyWorkPage
+            state={scopedState}
+            user={currentCompanyUser}
+            preferences={workPreferences}
+            mailboxMessages={workMailbox.messages}
+            onPreferencesChange={updateWorkPreferences}
+            onNavigate={setPage}
+            onOpen={openDossier}
+            onOpenNewTab={openDossierNewTab}
+            onAction={performWorkItemAction}
+            onSendReminder={sendWorkItemReminder}
+            onUploadDocument={uploadWorkItemDocument}
+          /></Suspense>}
           {page === "dossiers" && <DossierRegister state={scopedState} preferences={dossierPreferences} onOpen={openDossier} onOpenNewTab={openDossierNewTab} onToggleFavorite={toggleDossierFavorite} />}
           {page === "crm" && <CRM state={presentationState} actions={actions} onOpenDossier={openDossier} />}
           {page === "opportunities" && (
@@ -2995,7 +3110,7 @@ function CompanyScopeFilter({
   );
 }
 
-function Dashboard({
+export function LegacyExecutiveDashboard({
   state,
   organizations,
   navigate,
@@ -3802,6 +3917,7 @@ function Calculations({
   const [bimOpen, setBimOpen] = useState(() =>
     typeof window !== "undefined" && new URLSearchParams(window.location.search).get("bim") === "1",
   );
+  const [lidarCalculationOpen,setLidarCalculationOpen]=useState(false);
   const [previewQuote, setPreviewQuote] = useState<Quote>();
   const [boqClipboard,setBoqClipboard]=useState<{sourceCalculationId:string;items:BoqItem[]} >({sourceCalculationId:'',items:[]});
   const calculation =
@@ -3999,6 +4115,7 @@ function Calculations({
             <div className="calc-toolbar">
               <Badge text={calculation.status} />
               <button className="secondary bim-launch-button" onClick={() => setBimOpen(true)}><Boxes size={16}/>BIM-calculatie</button>
+              <button className="secondary bim-launch-button" onClick={()=>setLidarCalculationOpen(true)}><ScanLine size={16}/>LiDAR-opname</button>
               <button className="secondary" onClick={() => setTemplateOpen(true)}><BookOpen size={16}/>Klasse-8-sjabloon</button>
               <button
                 className="secondary"
@@ -4238,6 +4355,7 @@ function Calculations({
           }}
         />
       )}
+      {lidarCalculationOpen&&<Suspense fallback={null}><LidarCalculationWorkspace calculationId={calculation.id} calculationNumber={calculation.number} projectName={opportunity?.title??calculation.number} actor={state.companyUsers.find(user=>user.id===state.currentUserId)?.displayName??'Calculator'} persistence={{list:actions.listCalculationLidarScans,create:actions.createCalculationLidarScan,build:actions.buildLidarCalculationProposal,approve:actions.approveLidarCalculationProposal,apply:actions.applyLidarCalculationProposal}} onApplied={count=>{setTransferNotice(`${count} LiDAR-post${count===1?'':'en'} aan de calculatie toegevoegd.`);setLastTransferItemIds([])}} onClose={()=>setLidarCalculationOpen(false)}/></Suspense>}
       {importOpen && (
         <ImportDialog
           calculation={calculation}
@@ -14423,13 +14541,13 @@ function CompanyAccess({state,actions}:{state:ReturnType<typeof useBouwFlowStore
 }
 
 function CompanyUserProfileDialog({user,state,actions,onClose}:{user?:CompanyUser;state:BouwFlowState;actions:ReturnType<typeof useBouwFlowStore>['actions'];onClose:()=>void}){
-  const [form,setForm]=useState<CompanyUserProfileInput & {legalEntityIds:string[];projectIds:string[]}>({displayName:user?.displayName??'',email:user?.email??'',role:user?.role??'Werfleider',status:user?.status??'Uitgenodigd',employeeId:user?.employeeId,organizationId:user?.organizationId,subcontractorId:user?.subcontractorId,supplierId:user?.supplierId,allLegalEntities:user?.allLegalEntities??false,legalEntityIds:[...(user?.legalEntityIds??state.legalEntities.slice(0,1).map(item=>item.id))],allProjects:user?.allProjects??false,projectIds:[...(user?.projectIds??state.projects.slice(0,1).map(item=>item.id))]});
+  const [form,setForm]=useState<CompanyUserProfileInput & {legalEntityIds:string[];projectIds:string[]}>({displayName:user?.displayName??'',email:user?.email??'',role:user?.role??'Werfleider',roles:[...new Set(user?.roles?.length?user.roles:[user?.role??'Werfleider'])],status:user?.status??'Uitgenodigd',employeeId:user?.employeeId,organizationId:user?.organizationId,subcontractorId:user?.subcontractorId,supplierId:user?.supplierId,allLegalEntities:user?.allLegalEntities??false,legalEntityIds:[...(user?.legalEntityIds??state.legalEntities.slice(0,1).map(item=>item.id))],allProjects:user?.allProjects??false,projectIds:[...(user?.projectIds??state.projects.slice(0,1).map(item=>item.id))]});
   const external=['Klant','Onderaannemer','Leverancier'].includes(form.role);const roleInfo=roleDefinition(form.role);
   const entityIds=form.legalEntityIds??[];const projectIds=form.projectIds??[];
   const toggle=(key:'legalEntityIds'|'projectIds',id:string,checked:boolean)=>setForm(current=>{const values=current[key]??[];return {...current,[key]:checked?[...new Set([...values,id])]:values.filter(item=>item!==id)}});
-  const selectRole=(role:string)=>setForm(current=>({...current,role,allLegalEntities:['Administrator','Directie'].includes(role),allProjects:['Administrator','Directie'].includes(role),organizationId:role==='Klant'?current.organizationId:undefined,subcontractorId:role==='Onderaannemer'?current.subcontractorId:undefined,supplierId:role==='Leverancier'?current.supplierId:undefined}));
+  const selectRole=(role:string)=>setForm(current=>({...current,role,roles:['Klant','Onderaannemer','Leverancier'].includes(role)?[role]:[...new Set([role,...(current.roles??[]).filter(item=>!['Klant','Onderaannemer','Leverancier'].includes(item))])],allLegalEntities:['Administrator','Directie'].includes(role),allProjects:['Administrator','Directie'].includes(role),organizationId:role==='Klant'?current.organizationId:undefined,subcontractorId:role==='Onderaannemer'?current.subcontractorId:undefined,supplierId:role==='Leverancier'?current.supplierId:undefined}));
   const valid=Boolean(form.displayName.trim().length>1&&form.email.includes('@')&&(form.allLegalEntities||entityIds.length)&&(form.allProjects||projectIds.length)&&(!external||(form.role==='Klant'&&form.organizationId)||(form.role==='Onderaannemer'&&form.subcontractorId)||(form.role==='Leverancier'&&form.supplierId)));
-  return <div className="modal-backdrop"><form className="modal settings-user-dialog" onSubmit={event=>{event.preventDefault();if(user)void actions.updateCompanyUser(user.id,form);else void actions.inviteCompanyUser(form);onClose()}}><div className="modal-head"><div><p className="eyebrow">{user?'Gebruikersprofiel':'Nieuwe uitnodiging'}</p><h2>{user?user.displayName:'Gebruiker toegang geven'}</h2></div><button type="button" className="icon-button" aria-label="Sluiten" onClick={onClose}><X size={20}/></button></div><div className="settings-user-dialog-grid"><section><h3>Identiteit en rol</h3><label>Naam<input required value={form.displayName} onChange={event=>setForm({...form,displayName:event.target.value})}/></label><label>E-mailadres<input required type="email" value={form.email} onChange={event=>setForm({...form,email:event.target.value})}/></label><label>Rol<select value={form.role} onChange={event=>selectRole(event.target.value)}>{roleDefinitions.map(item=><option key={item.name}>{item.name}</option>)}</select></label><div className="settings-role-explanation"><LockKeyhole size={17}/><span><strong>{roleInfo?.audience}</strong><small>{roleInfo?.description}</small></span></div><label>Status<select value={form.status} onChange={event=>setForm({...form,status:event.target.value as CompanyUserProfileInput['status']})}>{['Uitgenodigd','Actief','Geblokkeerd'].map(item=><option key={item}>{item}</option>)}</select></label>{!external&&<label>HR-medewerker<select value={form.employeeId??''} onChange={event=>setForm({...form,employeeId:event.target.value||undefined})}><option value="">Geen HR-koppeling</option>{state.employees.map(item=><option key={item.id} value={item.id}>{employeeFullName(item)} · {item.role}</option>)}</select></label>}{form.role==='Klant'&&<label>Klantrelatie<select required value={form.organizationId??''} onChange={event=>setForm({...form,organizationId:event.target.value||undefined})}><option value="">Selecteer relatie</option>{state.organizations.filter(item=>organizationRoles(item).some(role=>role==='Klant'||role==='Opdrachtgever')).map(item=><option key={item.id} value={item.id}>{item.name}</option>)}</select></label>}{form.role==='Onderaannemer'&&<label>Onderaannemer<select required value={form.subcontractorId??''} onChange={event=>setForm({...form,subcontractorId:event.target.value||undefined})}><option value="">Selecteer onderaannemer</option>{state.subcontractors.map(item=><option key={item.id} value={item.id}>{item.name}</option>)}</select></label>}{form.role==='Leverancier'&&<label>Leverancier<select required value={form.supplierId??''} onChange={event=>setForm({...form,supplierId:event.target.value||undefined})}><option value="">Selecteer leverancier</option>{state.suppliers.map(item=><option key={item.id} value={item.id}>{item.name}</option>)}</select></label>}</section><section><h3>Gegevensbereik</h3><label className="settings-scope-toggle"><input type="checkbox" checked={form.allLegalEntities} onChange={event=>setForm({...form,allLegalEntities:event.target.checked})}/><span><strong>Alle juridische entiteiten</strong><small>Ook toekomstige entiteiten automatisch toelaten</small></span></label><div className={`settings-scope-options ${form.allLegalEntities?'disabled':''}`}>{state.legalEntities.map(item=><label key={item.id}><input type="checkbox" disabled={form.allLegalEntities} checked={form.legalEntityIds.includes(item.id)} onChange={event=>toggle('legalEntityIds',item.id,event.target.checked)}/><span><strong>{item.name}</strong><small>{item.vatNumber}</small></span></label>)}</div><label className="settings-scope-toggle"><input type="checkbox" checked={form.allProjects} onChange={event=>setForm({...form,allProjects:event.target.checked})}/><span><strong>Alle projecten</strong><small>Alleen geschikt voor portefeuillefuncties</small></span></label><div className={`settings-scope-options project-scope ${form.allProjects?'disabled':''}`}>{state.projects.map(item=><label key={item.id}><input type="checkbox" disabled={form.allProjects} checked={form.projectIds.includes(item.id)} onChange={event=>toggle('projectIds',item.id,event.target.checked)}/><span><strong>{item.number}</strong><small>{item.name}</small></span></label>)}</div></section></div><div className="modal-actions"><span className="modal-note">Bij eerste Microsoft-aanmelding wordt een uitnodiging op e-mailadres veilig aan het Entra-account gekoppeld.</span><button type="button" className="secondary" onClick={onClose}>Annuleren</button><button className="primary" disabled={!valid}>{user?'Profiel opslaan':'Uitnodiging klaarzetten'}</button></div></form></div>
+  return <div className="modal-backdrop"><form className="modal settings-user-dialog" onSubmit={event=>{event.preventDefault();if(user)void actions.updateCompanyUser(user.id,form);else void actions.inviteCompanyUser(form);onClose()}}><div className="modal-head"><div><p className="eyebrow">{user?'Gebruikersprofiel':'Nieuwe uitnodiging'}</p><h2>{user?user.displayName:'Gebruiker toegang geven'}</h2></div><button type="button" className="icon-button" aria-label="Sluiten" onClick={onClose}><X size={20}/></button></div><div className="settings-user-dialog-grid"><section><h3>Identiteit en rol</h3><label>Naam<input required value={form.displayName} onChange={event=>setForm({...form,displayName:event.target.value})}/></label><label>E-mailadres<input required type="email" value={form.email} onChange={event=>setForm({...form,email:event.target.value})}/></label><label>Primaire rol<select value={form.role} onChange={event=>selectRole(event.target.value)}>{roleDefinitions.map(item=><option key={item.name}>{item.name}</option>)}</select></label><div className="settings-role-explanation"><LockKeyhole size={17}/><span><strong>{roleInfo?.audience}</strong><small>{roleInfo?.description}</small></span></div>{!external&&<fieldset className="settings-dashboard-roles"><legend>Extra dashboardrollen</legend><small>De gebruiker kan bovenaan tussen deze werkcontexten wisselen.</small>{roleDefinitions.filter(item=>!['Administrator','Directie','Klant','Onderaannemer','Leverancier'].includes(item.name)).map(item=><label key={item.name}><input type="checkbox" checked={(form.roles??[]).includes(item.name)} disabled={item.name===form.role} onChange={event=>setForm(current=>({...current,roles:event.target.checked?[...new Set([...(current.roles??[]),item.name])]:(current.roles??[]).filter(role=>role!==item.name)}))}/><span>{item.name}</span></label>)}</fieldset>}<label>Status<select value={form.status} onChange={event=>setForm({...form,status:event.target.value as CompanyUserProfileInput['status']})}>{['Uitgenodigd','Actief','Geblokkeerd'].map(item=><option key={item}>{item}</option>)}</select></label>{!external&&<label>HR-medewerker<select value={form.employeeId??''} onChange={event=>setForm({...form,employeeId:event.target.value||undefined})}><option value="">Geen HR-koppeling</option>{state.employees.map(item=><option key={item.id} value={item.id}>{employeeFullName(item)} · {item.role}</option>)}</select></label>}{form.role==='Klant'&&<label>Klantrelatie<select required value={form.organizationId??''} onChange={event=>setForm({...form,organizationId:event.target.value||undefined})}><option value="">Selecteer relatie</option>{state.organizations.filter(item=>organizationRoles(item).some(role=>role==='Klant'||role==='Opdrachtgever')).map(item=><option key={item.id} value={item.id}>{item.name}</option>)}</select></label>}{form.role==='Onderaannemer'&&<label>Onderaannemer<select required value={form.subcontractorId??''} onChange={event=>setForm({...form,subcontractorId:event.target.value||undefined})}><option value="">Selecteer onderaannemer</option>{state.subcontractors.map(item=><option key={item.id} value={item.id}>{item.name}</option>)}</select></label>}{form.role==='Leverancier'&&<label>Leverancier<select required value={form.supplierId??''} onChange={event=>setForm({...form,supplierId:event.target.value||undefined})}><option value="">Selecteer leverancier</option>{state.suppliers.map(item=><option key={item.id} value={item.id}>{item.name}</option>)}</select></label>}</section><section><h3>Gegevensbereik</h3><label className="settings-scope-toggle"><input type="checkbox" checked={form.allLegalEntities} onChange={event=>setForm({...form,allLegalEntities:event.target.checked})}/><span><strong>Alle juridische entiteiten</strong><small>Ook toekomstige entiteiten automatisch toelaten</small></span></label><div className={`settings-scope-options ${form.allLegalEntities?'disabled':''}`}>{state.legalEntities.map(item=><label key={item.id}><input type="checkbox" disabled={form.allLegalEntities} checked={form.legalEntityIds.includes(item.id)} onChange={event=>toggle('legalEntityIds',item.id,event.target.checked)}/><span><strong>{item.name}</strong><small>{item.vatNumber}</small></span></label>)}</div><label className="settings-scope-toggle"><input type="checkbox" checked={form.allProjects} onChange={event=>setForm({...form,allProjects:event.target.checked})}/><span><strong>Alle projecten</strong><small>Alleen geschikt voor portefeuillefuncties</small></span></label><div className={`settings-scope-options project-scope ${form.allProjects?'disabled':''}`}>{state.projects.map(item=><label key={item.id}><input type="checkbox" disabled={form.allProjects} checked={form.projectIds.includes(item.id)} onChange={event=>toggle('projectIds',item.id,event.target.checked)}/><span><strong>{item.number}</strong><small>{item.name}</small></span></label>)}</div></section></div><div className="modal-actions"><span className="modal-note">Bij eerste Microsoft-aanmelding wordt een uitnodiging op e-mailadres veilig aan het Entra-account gekoppeld.</span><button type="button" className="secondary" onClick={onClose}>Annuleren</button><button className="primary" disabled={!valid}>{user?'Profiel opslaan':'Uitnodiging klaarzetten'}</button></div></form></div>
 }
 
 function WorkflowDefinitionDialog({workflow,actions,onClose}:{workflow:WorkflowDefinition;actions:ReturnType<typeof useBouwFlowStore>['actions'];onClose:()=>void}){

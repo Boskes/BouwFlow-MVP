@@ -1,4 +1,5 @@
 import type { BimProgressEvidence, ProjectWorkPackage } from './domain.js'
+import type { LidarCalculationProposal, LidarSurveyElement, LidarSurveyPurpose, LidarWorkAssignment } from './lidar-calculation.js'
 
 export type LidarScanStatus = 'Concept' | 'Opgenomen' | 'Uitgelijnd' | 'Geanalyseerd' | 'Ter goedkeuring' | 'Goedgekeurd' | 'As-built gepubliceerd'
 export type LidarArtifactKind = 'RoomPlan JSON' | 'USDZ' | 'Mesh' | 'Puntenwolk' | 'Foto' | 'Dieptekaart'
@@ -51,6 +52,9 @@ export interface LidarElementObservation {
   confidencePct: number
   deviationMm: number
   photoEvidenceCount: number
+  dailyReportIds?: string[]
+  inspectionDocumentIds?: string[]
+  manuallyConfirmed?: boolean
   detected: boolean
 }
 
@@ -113,7 +117,11 @@ export interface LidarAsBuiltRevision {
 
 export interface LidarScanSession {
   id: string
-  projectId: string
+  projectId?: string
+  opportunityId?: string
+  calculationId?: string
+  purpose?: LidarSurveyPurpose
+  baselineScanId?: string
   modelId: string
   modelName: string
   modelVersion: string
@@ -134,10 +142,15 @@ export interface LidarScanSession {
   progressProposals: LidarProgressProposal[]
   bcfTopics: LidarBcfTopic[]
   asBuiltRevisions: LidarAsBuiltRevision[]
+  surveyElements?: LidarSurveyElement[]
+  workAssignments?: LidarWorkAssignment[]
+  calculationProposal?: LidarCalculationProposal
 }
 
-export interface LidarScanInput extends Pick<LidarScanSession, 'modelId' | 'modelName' | 'modelVersion' | 'zone' | 'storey' | 'deviceName' | 'deviceSupportsLidar' | 'captureMode' | 'capturedBy' | 'capturedAt' | 'notes'> {
+export interface LidarScanInput extends Pick<LidarScanSession, 'modelId' | 'modelName' | 'modelVersion' | 'zone' | 'storey' | 'deviceName' | 'deviceSupportsLidar' | 'captureMode' | 'capturedBy' | 'capturedAt' | 'notes' | 'purpose' | 'baselineScanId'> {
   controlPoints?: LidarControlPoint[]
+  surveyElements?: LidarSurveyElement[]
+  workAssignments?: LidarWorkAssignment[]
 }
 
 const clamp = (value: number, min = 0, max = 100) => Math.max(min, Math.min(max, value))
@@ -181,6 +194,11 @@ export function analyzeLidarObservations(observations: LidarElementObservation[]
     if(observation.confidencePct<85)reviewReasons.push('Herkenningszekerheid lager dan 85%')
     if(Math.abs(observation.deviationMm)>30)reviewReasons.push('Geometrische afwijking groter dan 30 mm')
     if(observation.measurementRule==='Foto en controle'&&!observation.photoEvidenceCount)reviewReasons.push('Foto en manuele kwaliteitscontrole vereist')
+    const uncertain=observation.visibilityPct<60||observation.confidencePct<85
+    if(uncertain&&!observation.photoEvidenceCount)reviewReasons.push('Foto ontbreekt voor een onzekere of gedeeltelijk zichtbare meting')
+    if(uncertain&&!observation.dailyReportIds?.length)reviewReasons.push('Goedgekeurd dagrapport ontbreekt voor een onzekere meting')
+    if(uncertain&&!observation.manuallyConfirmed)reviewReasons.push('Manuele bevestiging ontbreekt voor een onzekere meting')
+    if(/leiding|elektr|brand|ventil|sanitair|verwarming/i.test(observation.category)&&!observation.inspectionDocumentIds?.length)reviewReasons.push('Technisch of keuringsdocument ontbreekt voor deze installatie')
     const acceptedQuantity=observation.plannedQuantity*progress/100
     return {...observation,suggestedProgressPct:round(progress,1),acceptedQuantity:round(acceptedQuantity,3),autoApprovable:reviewReasons.length===0,reviewReasons}
   })
@@ -216,7 +234,7 @@ export function lidarProposalToBimEvidence(session:LidarScanSession,proposal:Lid
     modelId:session.modelId,modelName:session.modelName,modelVersion:session.modelVersion,discipline:'Multidisciplinair',elementIds:proposal.ifcGuids,elementCount:proposal.ifcGuids.length,
     measuredQuantity:proposal.measuredQuantity,verifiedQuantity:proposal.verifiedQuantity,unit:proposal.unit,completionPct:proposal.suggestedProgressPct,measuredAt:session.capturedAt,
     measuredBy:proposal.approvedBy??session.capturedBy,status:'Gecontroleerd',clashFree:session.matches.every(match=>Math.abs(match.deviationMm)<=30),
-    notes:`LiDAR-scan ${session.id} · ${session.zone} · registratie ${session.registration?.rmsErrorMm??'—'} mm RMS · zekerheid ${proposal.confidencePct}%`,
+    notes:`LiDAR-scan ${session.id} · ${session.zone} · registratie ${session.registration?.rmsErrorMm??'—'} mm RMS · zekerheid ${proposal.confidencePct}% · hybride bewijs: LiDAR, foto's, dagrapporten, manuele bevestiging en keuringsdocumenten`,
     lidarEvidence:{scanSessionId:session.id,captureMode:session.captureMode,deviceName:session.deviceName,registrationRmsMm:session.registration?.rmsErrorMm??0,confidencePct:proposal.confidencePct,artifactIds:session.artifacts.map(item=>item.id),bcfTopicIds:session.bcfTopics.map(item=>item.id)},
   }
 }

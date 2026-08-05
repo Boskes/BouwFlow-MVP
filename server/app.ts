@@ -1,5 +1,5 @@
 import Fastify, { type FastifyReply, type FastifyRequest } from 'fastify'
-import { createHash, timingSafeEqual } from 'node:crypto'
+import { createHash, randomUUID, timingSafeEqual } from 'node:crypto'
 import cors from '@fastify/cors'
 import multipart from '@fastify/multipart'
 import { z, ZodError } from 'zod'
@@ -11,15 +11,16 @@ import { applyProductionDemoUser, ensureProductionDemoData } from './db/producti
 import { enforceCompanyScope } from './company-access.js'
 import { applyCostSchema, boqItemPatchSchema, boqItemSchema, bulkCostUpdateSchema, bulkPriceAdjustmentSchema, calculationPatchSchema, calculationScenarioPatchSchema, calculationScenarioSchema, calculationStructureSchema, calculationTemplateSchema, calculationVersionSchema, changeOrderApprovalSchema, changeOrderSchema, chapterSchema, commitmentSettlementSchema, companyBranchSchema, companyUserAccessSchema, companyUserProfileSchema, costLibraryItemPatchSchema, costLibraryItemSchema, costLibraryPatchSchema, costLibrarySchema, costLibraryVersionSchema, crmActivitySchema, dailyReportSchema, dailyReportSignSchema, documentApprovalSchema, documentDistributionSchema, documentMetadataSchema, documentRevisionSchema, documentUploadSchema, intercompanyChargeSchema, legalEntityFinancialSchema, legalEntitySchema, opportunityGoNoGoSchema, opportunitySchema, organizationBillingSchema, organizationRelationSchema, organizationSchema, paymentRegistrationSchema, peppolAcceptanceReleaseSchema, peppolNotificationSettingsSchema, peppolNotificationTestSchema, postCalculationFeedbackSchema, procurementRequestSchema, progressStatementApprovalSchema, progressStatementSchema, projectBaselineSchema, projectCompanyAssignmentSchema, projectCostSchema, projectDetailsSchema, projectForecastSchema, projectPlanningSchema, projectStartupSchema, purchaseDeviationApprovalSchema, purchaseInvoiceMatchSchema, purchaseReceiptSchema, qhseCertificateSchema, qhseFindingParams, qhseInspectionSchema, quoteApprovalSchema, quoteContentSchema, quoteLossSchema, quoteReminderSchema, quoteSendSchema, quoteSignatureSchema, salesInvoiceIssueSchema, salesInvoiceSchema, sitePhotoSchema, supplierFrameworkAgreementSchema, supplierQuoteSchema, supplierSchema, tenderDossierSchema, unitConversionSchema, unitPatchSchema, unitSchema, uuidParams, workflowCorrectionSchema, workflowDefinitionSchema } from './schemas.js'
 import { assetOperationalSchema, assetSchema, documentRecordLinkSchema, inventoryCountSchema, inventoryItemSchema, stockMovementSchema, warehouseSchema } from './schemas.js'
+import { workReminderSchema } from './schemas.js'
 import { aiAnalysisSchema, aiApprovalSchema, checkinatworkCancellationSchema, checkinatworkParticipantSchema, checkinatworkRegistrationSchema, checkinatworkSiteSchema, closeoutItemSchema, employeeAbsenceDecisionSchema, employeeAbsenceSchema, employeeCrewSchema, employeeSchema, jointVentureSchema, projectClaimSchema, projectClaimTransitionSchema, projectCloseoutSchema, projectContractSchema, projectContractUpdateSchema, qhseEventSchema, subcontractorOperationSchema, subcontractorProgressDecisionSchema, subcontractorSchema, timeEntryDecisionSchema, timeEntrySchema, workTicketSchema, workTicketSignatureSchema } from './schemas.js'
-import { lidarAnalysisSchema, lidarApprovalSchema, lidarArtifactSchema, lidarAsBuiltSchema, lidarBcfSchema, lidarRegistrationSchema, lidarScanSchema } from './schemas.js'
+import { lidarAnalysisSchema, lidarApprovalSchema, lidarArtifactSchema, lidarAsBuiltSchema, lidarBcfSchema, lidarCalculationApprovalSchema, lidarCalculationProposalSchema, lidarRegistrationSchema, lidarScanSchema } from './schemas.js'
 import { BoqFileError, parseBoqFile } from './import/boq-parser.js'
 import { renderQuotePdf } from './pdf/quote-pdf.js'
 import { renderPurchaseOrderPdf } from './pdf/purchase-order-pdf.js'
 import { renderPeppolAcceptancePdf } from './pdf/peppol-acceptance-pdf.js'
 import { LocalObjectStorage, type ObjectStorage } from './storage.js'
 import { buildInvoiceUblDraft } from '../src/invoice-export.js'
-import type { PeppolAcceptanceResult, PeppolAcceptanceStep, PeppolIntegrationCheck } from '../src/domain.js'
+import type { PeppolAcceptanceResult, PeppolAcceptanceStep, PeppolIntegrationCheck, PeppolNotification, WorkReminderResult } from '../src/domain.js'
 import { createPeppolValidator, type PeppolValidator } from './peppol/validator.js'
 import { createPeppolAccessPoint, isKnownPeppolProviderStatus, peppolTransportResultFromProvider, type PeppolAccessPoint } from './peppol/access-point.js'
 import { PeppolStatusMonitor } from './peppol/status-monitor.js'
@@ -33,6 +34,7 @@ import { getBimProductionTestModel } from '../src/bim-test-models.js'
 import { createMicrosoft365MailService, type CentralMailService } from './microsoft365-mail.js'
 import { OfficialBelgianPriceIndexService, type PriceIndexProvider } from './price-index-service.js'
 import { createCheckinatworkGateway, type CheckinatworkGateway } from './checkinatwork-gateway.js'
+import { LIDAR_WORK_CATALOG } from '../src/lidar-calculation.js'
 
 type BimTestModelFetch = (input: string | URL | Request, init?: RequestInit) => Promise<Response>
 
@@ -362,6 +364,23 @@ export async function buildApp({ pool, authMode = 'development', logger = false,
       await repository.completePeppolNotificationTest(request.context, notification, message)
       throw new RepositoryError(`Testmelding kon niet worden afgeleverd: ${message}`, 502)
     }
+  })
+  app.post('/api/work-reminders/send', { preHandler: requireRoles('Administrator', 'Directie', 'Commercieel medewerker', 'Tender manager', 'Calculator', 'Projectdirecteur', 'Projectmanager', 'Werfleider', 'Werkvoorbereider', 'Aankoper', 'Financiële administratie', 'Preventieadviseur', 'Kwaliteitsverantwoordelijke', 'Medewerker', 'Klant', 'Onderaannemer', 'Leverancier') }, async request => {
+    if (!notificationSender) throw new RepositoryError('De BouwFlow e-mail- en Teams-connector is niet geconfigureerd', 409)
+    const input = workReminderSchema.parse(request.body)
+    if (!notificationChannels.includes(input.channel)) throw new RepositoryError(`${input.channel} is niet geconfigureerd voor BouwFlow-herinneringen`, 409)
+    const bootstrap = await repository.bootstrap(request.context)
+    if (input.channel === 'E-mail' && !bootstrap.companyUsers.some(user => user.email.toLowerCase() === input.destination.toLowerCase() && user.status !== 'Geblokkeerd')) {
+      throw new RepositoryError('Herinneringen mogen alleen naar een actieve BouwFlow-gebruiker worden verzonden', 403)
+    }
+    if (input.channel === 'Teams' && !notificationTargets.some(target => target.channel === 'Teams' && target.destination === input.destination)) {
+      throw new RepositoryError('Dit Teams-doel is niet als BouwFlow-kanaal geconfigureerd', 403)
+    }
+    const now = new Date().toISOString()
+    const notification: PeppolNotification = { id: randomUUID(), alertId: input.taskId, channel: input.channel, kind: 'SLA-escalatie', destination: input.destination, subject: `BouwFlow · ${input.title}`, message: input.message, status: 'In wachtrij', attempts: 0, nextAttemptAt: now, createdAt: now, updatedAt: now }
+    try { await notificationSender.send(notification) }
+    catch (error) { throw new RepositoryError(`Herinnering kon niet worden afgeleverd: ${error instanceof Error ? error.message : 'onbekende connectorfout'}`, 502) }
+    return { ...input, id: notification.id, status: 'Verzonden', sentAt: now } satisfies WorkReminderResult
   })
   app.get('/api/audit', { preHandler: [requireRoles('Administrator', 'Directie'), requireAllLegalEntities] }, async request => repository.auditEntries(request.context))
   app.get('/api/audit/:entityType/:entityId', async request => {
@@ -722,16 +741,38 @@ export async function buildApp({ pool, authMode = 'development', logger = false,
   const lidarIdParams=z.object({id:z.uuid()})
   const lidarProposalParams=z.object({id:z.uuid(),proposalId:z.string().trim().min(1).max(300)})
 
+  app.get('/api/lidar/work-catalog', { preHandler: requireRoles('Administrator','Calculator','Tender manager','Projectmanager','Werfleider','Werkvoorbereider') }, async ()=>LIDAR_WORK_CATALOG)
+
+  app.get('/api/calculations/:id/lidar-scans', { preHandler: requireRoles('Administrator','Calculator','Tender manager','Projectmanager','Werkvoorbereider') }, async request=>{
+    const {id}=uuidParams.parse(request.params);return repository.listCalculationLidarScans(request.context,id)
+  })
+
+  app.post('/api/calculations/:id/lidar-scans', { preHandler: requireRoles('Administrator','Calculator','Tender manager','Werkvoorbereider') }, async (request,reply)=>{
+    const {id}=uuidParams.parse(request.params);return reply.code(201).send(await repository.createCalculationLidarScan(request.context,id,lidarScanSchema.parse(request.body)))
+  })
+
   app.get('/api/projects/:id/lidar-scans', { preHandler: requireRoles('Administrator','Projectmanager','Werfleider','Werkvoorbereider','Calculator','Kwaliteitsverantwoordelijke') }, async request=>{
     const {id}=uuidParams.parse(request.params);return repository.listLidarScans(request.context,id)
   })
 
-  app.post('/api/projects/:id/lidar-scans', { preHandler: requireRoles('Administrator','Projectmanager','Werfleider','Werkvoorbereider') }, async (request,reply)=>{
+  app.post('/api/projects/:id/lidar-scans', { preHandler: requireRoles('Administrator','Projectmanager','Werfleider','Werkvoorbereider','Calculator') }, async (request,reply)=>{
     const {id}=uuidParams.parse(request.params);return reply.code(201).send(await repository.createLidarScan(request.context,id,lidarScanSchema.parse(request.body)))
   })
 
-  app.post('/api/lidar-scans/:id/artifacts', { preHandler: requireRoles('Administrator','Projectmanager','Werfleider','Werkvoorbereider') }, async (request,reply)=>{
+  app.post('/api/lidar-scans/:id/artifacts', { preHandler: requireRoles('Administrator','Projectmanager','Werfleider','Werkvoorbereider','Calculator') }, async (request,reply)=>{
     const {id}=lidarIdParams.parse(request.params);const upload=await request.file();if(!upload)throw new RepositoryError('Selecteer een LiDAR-bewijsbestand',400);const data=await upload.toBuffer();const fields=upload.fields as unknown as Record<string,unknown>;const input=lidarArtifactSchema.parse({kind:multipartField(fields,'kind'),capturedAt:multipartField(fields,'capturedAt')});return reply.code(201).send(await repository.uploadLidarArtifact(request.context,id,input,{fileName:upload.filename,mimeType:upload.mimetype,data}))
+  })
+
+  app.post('/api/lidar-scans/:id/calculation-proposal', { preHandler: requireRoles('Administrator','Calculator','Tender manager','Werkvoorbereider') }, async request=>{
+    const {id}=lidarIdParams.parse(request.params);const input=lidarCalculationProposalSchema.parse(request.body);return repository.buildLidarCalculation(request.context,id,input.elements,input.assignments)
+  })
+
+  app.post('/api/lidar-scans/:id/calculation-proposal/approve', { preHandler: requireRoles('Administrator','Calculator','Tender manager') }, async request=>{
+    const {id}=lidarIdParams.parse(request.params);return repository.approveLidarCalculation(request.context,id,lidarCalculationApprovalSchema.parse(request.body).approvedBy)
+  })
+
+  app.post('/api/lidar-scans/:id/calculation-proposal/apply', { preHandler: requireRoles('Administrator','Calculator','Tender manager') }, async request=>{
+    const {id}=lidarIdParams.parse(request.params);return repository.applyLidarCalculation(request.context,id)
   })
 
   app.post('/api/lidar-scans/:id/register', { preHandler: requireRoles('Administrator','Projectmanager','Werfleider','Werkvoorbereider','Kwaliteitsverantwoordelijke') }, async request=>{

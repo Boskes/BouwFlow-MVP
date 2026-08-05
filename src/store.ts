@@ -10,6 +10,7 @@ import { invoiceExportReadiness } from './invoice-readiness'
 import type { CrmActivity, DocumentRecordLinkInput, Organization, OrganizationInput, OrganizationRelation, Quote, TenderDossier } from './domain'
 import type { AuditTrailEntry } from './domain'
 import type { MailboxComposeInput, MailboxLinkInput, MailboxOverview, MailboxReplyInput } from './domain'
+import type { WorkReminderInput } from './domain'
 import type { WorkflowCorrection, WorkflowCorrectionInput } from './domain'
 import type { CloseoutItem, ProjectCloseoutUpdateInput, ServiceRequestInput } from './domain'
 import type { Asset, AssetInput, AssetOperationalInput, InventoryCountInput, InventoryItem, InventoryItemInput, StockMovement, StockMovementInput, Warehouse, WarehouseInput } from './domain'
@@ -25,6 +26,7 @@ import { buildDailyReportEvidence, buildMeetstaatEvidence } from './progress-mea
 import { calculateContractPriceRevision, demoPriceIndexCatalogue } from './price-revision'
 import { CHECKINATWORK_THRESHOLD, maskCheckinatworkIdentifier } from './checkinatwork'
 import type { LidarArtifact, LidarBcfTopic, LidarControlPoint, LidarElementObservation, LidarScanInput } from './lidar-bim'
+import type { LidarSurveyElement, LidarWorkAssignment } from './lidar-calculation'
 
 const STORAGE_KEY = 'bouwflow.mvp.v1'
 const DEMO_DATA_VERSION_KEY = 'bouwflow.demo.version'
@@ -267,7 +269,7 @@ const seed: BouwFlowState = {
   currentUserId: 'user-jurgen',
   companyUsers: [
     { id: 'user-jurgen', displayName: 'Jurgen Bosmans', email: 'jurgen@example.be', role: 'Administrator', status:'Actief', allLegalEntities: true, legalEntityIds: [], allProjects:true, projectIds:[] },
-    { id: 'user-sofie', displayName: 'Sofie Janssens', email: 'sofie.janssens@example.be', role: 'Projectmanager', status:'Actief', employeeId:'employee-demo-sofie', allLegalEntities: false, legalEntityIds: ['entity-bouwflow'], allProjects:true, projectIds:[] },
+    { id: 'user-sofie', displayName: 'Sofie Janssens', email: 'sofie.janssens@example.be', role: 'Projectmanager', roles:['Projectmanager','Calculator','Financiële administratie'], status:'Actief', employeeId:'employee-demo-sofie', allLegalEntities: false, legalEntityIds: ['entity-bouwflow'], allProjects:true, projectIds:[] },
     { id: 'user-elias', displayName: 'Elias Jacobs', email: 'elias@example.be', role: 'Financiële administratie', status:'Actief', allLegalEntities: false, legalEntityIds: ['entity-bouwflow'], allProjects:true, projectIds:[] },
     { id:'user-pieter-site',displayName:'Pieter Mertens',email:'pieter.mertens@example.be',role:'Werfleider',status:'Actief',employeeId:'employee-demo-pieter',allLegalEntities:false,legalEntityIds:['entity-bouwflow'],allProjects:false,projectIds:['project-n72','project-brightland'] },
     { id:'user-client-awv',displayName:'Peter Vrancken',email:'peter.vrancken@example.be',role:'Klant',status:'Uitgenodigd',organizationId:'org-awv',allLegalEntities:false,legalEntityIds:['entity-bouwflow'],allProjects:false,projectIds:['project-n72'] },
@@ -852,6 +854,7 @@ export function useBouwFlowStore(tokenProvider?: () => Promise<string | undefine
     async sendMailboxMessage(input:MailboxComposeInput){return api?api.sendMailboxMessage(input):undefined},
     async replyMailboxMessage(id:string,input:MailboxReplyInput){return api?api.replyMailboxMessage(id,input):undefined},
     async linkMailboxMessage(id:string,input:MailboxLinkInput){return api?api.linkMailboxMessage(id,input):undefined},
+    async sendWorkReminder(input:WorkReminderInput){return api?remote(() => api.sendWorkReminder(input), () => undefined):undefined},
     async downloadBimTestModel(id: string) {
       if (api) return remote(() => api.downloadBimTestModel(id), () => undefined)
       const model = getBimProductionTestModel(id)
@@ -1500,13 +1503,18 @@ export function useBouwFlowStore(tokenProvider?: () => Promise<string | undefine
       })
     },
     async listLidarScans(projectId:string){if(!api)return [];return (await remote(()=>api.listLidarScans(projectId),()=>undefined))??[]},
+    async listCalculationLidarScans(calculationId:string){if(!api)return [];return (await remote(()=>api.listCalculationLidarScans(calculationId),()=>undefined))??[]},
     async createLidarScan(projectId:string,input:LidarScanInput&{controlPoints?:LidarControlPoint[];observations?:LidarElementObservation[]}){if(!api)return undefined;return remote(()=>api.createLidarScan(projectId,input),()=>undefined)},
+    async createCalculationLidarScan(calculationId:string,input:LidarScanInput&{controlPoints?:LidarControlPoint[];observations?:LidarElementObservation[]}){if(!api)return undefined;return remote(()=>api.createCalculationLidarScan(calculationId,input),()=>undefined)},
     async uploadLidarArtifact(scanId:string,file:File,input:{kind:LidarArtifact['kind'];capturedAt:string}){if(!api)return undefined;return remote(()=>api.uploadLidarArtifact(scanId,file,input),()=>undefined)},
     async registerLidarScan(scanId:string,controlPoints:LidarControlPoint[],registeredBy:string){if(!api)return undefined;return remote(()=>api.registerLidarScan(scanId,controlPoints,registeredBy),()=>undefined)},
     async analyzeLidarScan(scanId:string,observations:LidarElementObservation[]){if(!api)return undefined;return remote(()=>api.analyzeLidarScan(scanId,observations),()=>undefined)},
     async approveLidarProposal(scanId:string,proposalId:string,approvedBy:string){if(!api)return undefined;return remote(()=>api.approveLidarProposal(scanId,proposalId,approvedBy),()=>undefined)},
     async createLidarBcfTopic(scanId:string,input:Omit<LidarBcfTopic,'id'|'scanSessionId'|'status'|'createdAt'>){if(!api)return undefined;return remote(()=>api.createLidarBcfTopic(scanId,input),()=>undefined)},
     async publishLidarAsBuilt(scanId:string,createdBy:string){if(!api)return undefined;return remote(()=>api.publishLidarAsBuilt(scanId,createdBy),()=>undefined)},
+    async buildLidarCalculationProposal(scanId:string,elements:LidarSurveyElement[],assignments:LidarWorkAssignment[]){if(!api)return undefined;return remote(()=>api.buildLidarCalculationProposal(scanId,elements,assignments),()=>undefined)},
+    async approveLidarCalculationProposal(scanId:string,approvedBy:string){if(!api)return undefined;return remote(()=>api.approveLidarCalculationProposal(scanId,approvedBy),()=>undefined)},
+    async applyLidarCalculationProposal(scanId:string){if(!api)return undefined;const result=await remote(()=>api.applyLidarCalculationProposal(scanId),()=>undefined);if(result)await refresh();return result},
     async updateDailyReport(reportId: string, input: DailyReportInput) {
       if (api) {
         await remote(() => api.updateDailyReport(reportId, input), report => setState(current => ({ ...current, dailyReports: current.dailyReports.map(item => item.id === reportId ? report : item) })))
