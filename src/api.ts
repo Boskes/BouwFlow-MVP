@@ -177,11 +177,11 @@ export class BouwFlowApi {
     return this.request<BoqItem>(`/api/calculations/${encodeURIComponent(calculationId)}/items/${encodeURIComponent(itemId)}/cost-library/${encodeURIComponent(libraryItemId)}`, { method: 'POST', body: JSON.stringify({ factor }) })
   }
 
-  addChapter(calculationId: string, input: Pick<BoqChapter, 'code' | 'name'>) {
+  addChapter(calculationId: string, input: Pick<BoqChapter, 'code' | 'name'> & Partial<Pick<BoqChapter, 'parentChapterId' | 'responsibleUserId' | 'workflowStatus'>>) {
     return this.request<BoqChapter>(`/api/calculations/${encodeURIComponent(calculationId)}/chapters`, { method: 'POST', body: JSON.stringify(input) })
   }
 
-  updateCalculationStructure(calculationId: string, input: { chapters: Array<{ id: string; sortOrder: number }>; items: Array<{ id: string; chapterId?: string | null; sortOrder: number }> }) {
+  updateCalculationStructure(calculationId: string, input: { chapters: Array<{ id: string; sortOrder: number; code?: string; name?: string; parentChapterId?: string | null; responsibleUserId?: string | null; workflowStatus?: BoqChapter['workflowStatus'] }>; items: Array<{ id: string; chapterId?: string | null; sortOrder: number }> }) {
     return this.request<Calculation>(`/api/calculations/${encodeURIComponent(calculationId)}/structure`, { method: 'PUT', body: JSON.stringify(input) })
   }
 

@@ -893,13 +893,13 @@ describe('BouwFlow API', () => {
 
     const [firstChapter, secondChapter] = templated.json().chapters
     const [firstItem, secondItem] = templated.json().items
-    const structure = await app.inject({ method: 'PUT', url: `/api/calculations/${calculation.id}/structure`, payload: { chapters: [{ id: secondChapter.id, sortOrder: 0 }, { id: firstChapter.id, sortOrder: 1 }], items: [{ id: secondItem.id, chapterId: firstChapter.id, sortOrder: 0 }, { id: firstItem.id, chapterId: firstChapter.id, sortOrder: 1 }] } })
+    const structure = await app.inject({ method: 'PUT', url: `/api/calculations/${calculation.id}/structure`, payload: { chapters: [{ id: secondChapter.id, sortOrder: 0, parentChapterId: firstChapter.id, name: 'Uitvoering onder ruwbouw', workflowStatus: 'In bewerking' }, { id: firstChapter.id, sortOrder: 1, workflowStatus: 'Ter controle' }], items: [{ id: secondItem.id, chapterId: firstChapter.id, sortOrder: 0 }, { id: firstItem.id, chapterId: firstChapter.id, sortOrder: 1 }] } })
     expect(structure.statusCode).toBe(200)
-    expect(structure.json().chapters[0].id).toBe(secondChapter.id)
+    expect(structure.json().chapters[0]).toMatchObject({ id: secondChapter.id, parentChapterId: firstChapter.id, name: 'Uitvoering onder ruwbouw', workflowStatus: 'In bewerking' })
     expect(structure.json().items).toEqual([expect.objectContaining({ id: secondItem.id, chapterId: firstChapter.id, sortOrder: 0 }), expect.objectContaining({ id: firstItem.id, sortOrder: 1 })])
 
-    const advanced = await app.inject({ method: 'PATCH', url: `/api/calculations/${calculation.id}/items/${firstItem.id}`, payload: { wastePct: 7.5, itemRiskPct: 4, markupPct: 3, notes: 'Risicopost' } })
-    expect(advanced.json()).toMatchObject({ wastePct: 7.5, itemRiskPct: 4, markupPct: 3, notes: 'Risicopost' })
+    const advanced = await app.inject({ method: 'PATCH', url: `/api/calculations/${calculation.id}/items/${firstItem.id}`, payload: { wastePct: 7.5, itemRiskPct: 4, markupPct: 3, notes: 'Risicopost', workflowStatus: 'Ter controle', bimElementIds: ['2oBIMGlobalId'] } })
+    expect(advanced.json()).toMatchObject({ wastePct: 7.5, itemRiskPct: 4, markupPct: 3, notes: 'Risicopost', workflowStatus: 'Ter controle', bimElementIds: ['2oBIMGlobalId'] })
   })
 
   it('vergelijkt scenario’s en gebruikt het gekozen scenario voor offerte en gunning', async () => {

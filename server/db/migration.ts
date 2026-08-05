@@ -113,10 +113,17 @@ CREATE TABLE IF NOT EXISTS boq_chapters (
   code text NOT NULL,
   name text NOT NULL,
   sort_order integer NOT NULL DEFAULT 0,
+  parent_chapter_id uuid,
+  responsible_user_id uuid,
+  workflow_status text NOT NULL DEFAULT 'Niet gestart',
   PRIMARY KEY (tenant_id, id),
   UNIQUE (tenant_id, calculation_id, code),
   FOREIGN KEY (tenant_id, calculation_id) REFERENCES calculations(tenant_id, id) ON DELETE CASCADE
 );
+
+ALTER TABLE boq_chapters ADD COLUMN IF NOT EXISTS parent_chapter_id uuid;
+ALTER TABLE boq_chapters ADD COLUMN IF NOT EXISTS responsible_user_id uuid;
+ALTER TABLE boq_chapters ADD COLUMN IF NOT EXISTS workflow_status text NOT NULL DEFAULT 'Niet gestart';
 
 CREATE TABLE IF NOT EXISTS cost_library_items (
   tenant_id uuid NOT NULL REFERENCES tenants(id),

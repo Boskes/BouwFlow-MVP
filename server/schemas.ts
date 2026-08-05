@@ -314,6 +314,12 @@ export const boqItemSchema = z.object({
   variables: z.array(boqVariableSchema).max(50).optional(),
   formulas: boqFormulaMapSchema.optional(),
   priceAdjustments: z.array(boqPriceAdjustmentSchema).max(50).optional(),
+  responsibleUserId: z.uuid().optional(),
+  workflowStatus: z.enum(['Niet gestart','In bewerking','Ter controle','Goedgekeurd']).optional(),
+  workPackageId: z.uuid().optional(),
+  planningActivityId: z.uuid().optional(),
+  bimElementIds: z.array(z.string().trim().min(1).max(200)).max(500).optional(),
+  lidarScanIds: z.array(z.uuid()).max(100).optional(),
 })
 
 export const boqItemPatchSchema = boqItemSchema.partial().refine(
@@ -324,6 +330,9 @@ export const boqItemPatchSchema = boqItemSchema.partial().refine(
 export const chapterSchema = z.object({
   code: z.string().trim().min(1).max(50),
   name: z.string().trim().min(2).max(200),
+  parentChapterId: z.uuid().nullable().optional(),
+  responsibleUserId: z.uuid().optional(),
+  workflowStatus: z.enum(['Niet gestart','In bewerking','Ter controle','Goedgekeurd']).optional(),
 })
 
 export const calculationVersionSchema = z.object({
@@ -368,7 +377,15 @@ export const costLibraryVersionSchema = z.object({
 })
 
 export const calculationStructureSchema = z.object({
-  chapters: z.array(z.object({ id: z.uuid(), sortOrder: z.number().int().nonnegative() })).max(1000),
+  chapters: z.array(z.object({
+    id: z.uuid(),
+    sortOrder: z.number().int().nonnegative(),
+    code: z.string().trim().min(1).max(50).optional(),
+    name: z.string().trim().min(2).max(200).optional(),
+    parentChapterId: z.uuid().nullable().optional(),
+    responsibleUserId: z.uuid().nullable().optional(),
+    workflowStatus: z.enum(['Niet gestart','In bewerking','Ter controle','Goedgekeurd']).optional(),
+  })).max(1000),
   items: z.array(z.object({ id: z.uuid(), chapterId: z.uuid().nullable().optional(), sortOrder: z.number().int().nonnegative() })).max(20_000),
 })
 
