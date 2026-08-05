@@ -23,6 +23,26 @@ describe('BouwFlowApi', () => {
     expect(fetcher).toHaveBeenCalledWith('https://api.example.test/api/bootstrap', expect.objectContaining({ headers: expect.objectContaining({ Authorization: 'Bearer access-token' }) }))
   })
 
+  it('respecteert Retry-After en probeert een 429 slechts eenmaal opnieuw', async () => {
+    const fetcher = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ message: 'Te veel aanvragen' }), { status: 429, headers: { 'Content-Type': 'application/json', 'Retry-After': '0' } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ organizations: [], opportunities: [], calculations: [], quotes: [], projects: [] }), { status: 200, headers: { 'Content-Type': 'application/json' } }))
+    const api = new BouwFlowApi('https://api.example.test', fetcher)
+
+    await expect(api.bootstrap()).resolves.toMatchObject({ projects: [] })
+    expect(fetcher).toHaveBeenCalledTimes(2)
+  })
+
+  it('downloadt LiDAR-bewijs beveiligd met authenticatie', async () => {
+    const fetcher = vi.fn(async () => new Response(new Blob(['lidar-photo'], { type: 'image/jpeg' }), { status: 200, headers: { 'Content-Type': 'image/jpeg' } }))
+    const api = new BouwFlowApi('https://api.example.test', fetcher, async () => 'lidar-token')
+
+    const blob = await api.downloadLidarArtifact('scan/1', 'foto/1')
+
+    expect(blob.type).toBe('image/jpeg')
+    expect(fetcher).toHaveBeenCalledWith('https://api.example.test/api/lidar-scans/scan%2F1/artifacts/foto%2F1/file', { headers: { Accept: '*/*', Authorization: 'Bearer lidar-token' } })
+  })
+
   it('scheidt offline gegevens per Entra-tenant en gebruiker', async () => {
     const claims = globalThis.btoa(JSON.stringify({ tid: 'tenant-a', oid: 'user-a' })).replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_')
     const api = new BouwFlowApi('https://api.example.test/', vi.fn(), async () => `header.${claims}.signature`)

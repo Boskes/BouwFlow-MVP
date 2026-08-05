@@ -69,10 +69,16 @@ struct BouwFlowAPIClient {
         var request = try await request(path: "api/lidar-scans/\(scanId)/artifacts")
         request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
         let fileData = try Data(contentsOf: artifact.url, options: .mappedIfSafe)
+        let contentType: String
+        switch artifact.kind {
+        case .photo: contentType = "image/jpeg"
+        case .usdz: contentType = "model/vnd.usdz+zip"
+        case .roomPlanJSON, .mesh: contentType = "application/json"
+        }
         var body = Data()
         body.appendMultipart(name: "kind", value: artifact.kind.rawValue, boundary: boundary)
         body.appendMultipart(name: "capturedAt", value: ISO8601DateFormatter().string(from: artifact.capturedAt), boundary: boundary)
-        body.appendMultipart(name: "file", filename: artifact.url.lastPathComponent, contentType: artifact.kind == .usdz ? "model/vnd.usdz+zip" : "application/octet-stream", data: fileData, boundary: boundary)
+        body.appendMultipart(name: "file", filename: artifact.url.lastPathComponent, contentType: contentType, data: fileData, boundary: boundary)
         body.append("--\(boundary)--\r\n".data(using: .utf8)!)
         request.httpBody = body
         return try await send(request)
