@@ -953,6 +953,20 @@ describe('BouwFlow API', () => {
     const scan = scanResponse.json()
     expect(scan).toMatchObject({ calculationId: calculation.id, opportunityId: opportunity.id, purpose: 'Calculatie-opname', status: 'Opgenomen' })
 
+    const photoBytes = Buffer.from('beveiligd-lidar-fotobewijs')
+    const uploadedPhoto = await app.inject({
+      method: 'POST', url: `/api/lidar-scans/${scan.id}/artifacts`,
+      ...multipartDocument({ kind: 'Foto', capturedAt: '2027-06-12T08:31:00.000Z' }, photoBytes, 'leefruimte-overzicht.jpg', 'image/jpeg'),
+    })
+    expect(uploadedPhoto.statusCode, uploadedPhoto.body).toBe(201)
+    const photoArtifact = uploadedPhoto.json().artifacts.find((item: { fileName: string }) => item.fileName === 'leefruimte-overzicht.jpg')
+    expect(photoArtifact).toMatchObject({ kind: 'Foto', mimeType: 'image/jpeg', sizeBytes: photoBytes.length })
+    const downloadedPhoto = await app.inject({ method: 'GET', url: `/api/lidar-scans/${scan.id}/artifacts/${photoArtifact.id}/file` })
+    expect(downloadedPhoto.statusCode, downloadedPhoto.body).toBe(200)
+    expect(downloadedPhoto.headers['content-type']).toContain('image/jpeg')
+    expect(downloadedPhoto.headers['content-disposition']).toContain('leefruimte-overzicht.jpg')
+    expect(downloadedPhoto.rawPayload).toEqual(photoBytes)
+
     const elements = [
       { id: 'room-living', roomId: 'living', roomName: 'Leefruimte', kind: 'Ruimte', label: 'Leefruimte', areaM2: 31.5, lengthM: 23.4, count: 1, confidencePct: 98, photoArtifactIds: [] },
       { id: 'socket-living', roomId: 'living', roomName: 'Leefruimte', kind: 'Stopcontact', label: 'Nieuwe stopcontacten', count: 4, confidencePct: 91, photoArtifactIds: [] },

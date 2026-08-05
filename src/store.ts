@@ -1507,6 +1507,7 @@ export function useBouwFlowStore(tokenProvider?: () => Promise<string | undefine
     async createLidarScan(projectId:string,input:LidarScanInput&{controlPoints?:LidarControlPoint[];observations?:LidarElementObservation[]}){if(!api)return undefined;return remote(()=>api.createLidarScan(projectId,input),()=>undefined)},
     async createCalculationLidarScan(calculationId:string,input:LidarScanInput&{controlPoints?:LidarControlPoint[];observations?:LidarElementObservation[]}){if(!api)return undefined;return remote(()=>api.createCalculationLidarScan(calculationId,input),()=>undefined)},
     async uploadLidarArtifact(scanId:string,file:File,input:{kind:LidarArtifact['kind'];capturedAt:string}){if(!api)return undefined;return remote(()=>api.uploadLidarArtifact(scanId,file,input),()=>undefined)},
+    async downloadLidarArtifact(scanId:string,artifactId:string){if(!api)return undefined;return api.downloadLidarArtifact(scanId,artifactId)},
     async registerLidarScan(scanId:string,controlPoints:LidarControlPoint[],registeredBy:string){if(!api)return undefined;return remote(()=>api.registerLidarScan(scanId,controlPoints,registeredBy),()=>undefined)},
     async analyzeLidarScan(scanId:string,observations:LidarElementObservation[]){if(!api)return undefined;return remote(()=>api.analyzeLidarScan(scanId,observations),()=>undefined)},
     async approveLidarProposal(scanId:string,proposalId:string,approvedBy:string){if(!api)return undefined;return remote(()=>api.approveLidarProposal(scanId,proposalId,approvedBy),()=>undefined)},

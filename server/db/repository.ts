@@ -2953,6 +2953,13 @@ export class BouwFlowRepository {
     try{return await this.transaction(async client=>{const current=await this.lidarSession(client,context,scanId,true);if(current.status==='As-built gepubliceerd')throw new RepositoryError('Een gepubliceerde LiDAR-sessie is onveranderlijk',409);const artifact:LidarArtifact={id:artifactId,kind:input.kind,fileName:file.fileName.slice(0,255),mimeType:file.mimeType,sizeBytes:file.data.length,digest:createHash('sha256').update(file.data).digest('hex'),storageKey,capturedAt:input.capturedAt};const updated={...current,artifacts:[...current.artifacts,artifact]};await client.query('UPDATE lidar_scan_sessions SET session_data=$3,updated_at=now() WHERE tenant_id=$1 AND id=$2',[context.tenantId,scanId,JSON.stringify(updated)]);await this.audit(client,context,'lidar_scan',scanId,'artifact_uploaded',current,updated,artifact.fileName);return updated})}catch(error){await this.objectStorage.delete(storageKey);throw error}
   }
 
+  async getLidarArtifactFile(context:RequestContext,scanId:string,artifactId:string){
+    const session=await this.lidarSession(this.pool as unknown as SqlClient,context,scanId)
+    const artifact=session.artifacts.find(item=>item.id===artifactId)
+    if(!artifact?.storageKey)throw new RepositoryError('LiDAR-bewijsbestand niet gevonden',404)
+    return {artifact,data:await this.objectStorage.get(artifact.storageKey)}
+  }
+
   async buildLidarCalculation(context:RequestContext,id:string,elements:LidarSurveyElement[],assignments:LidarWorkAssignment[]):Promise<LidarScanSession>{
     return this.transaction(async client=>{const current=await this.lidarSession(client,context,id,true);if(!current.calculationId)throw new RepositoryError('Deze LiDAR-scan is niet aan een calculatie gekoppeld',409);const proposal=buildLidarCalculationProposal(id,current.calculationId,elements,assignments);const updated:LidarScanSession={...current,surveyElements:elements,workAssignments:assignments,calculationProposal:proposal,status:'Ter goedkeuring'};await client.query('UPDATE lidar_scan_sessions SET session_data=$3,updated_at=now() WHERE tenant_id=$1 AND id=$2',[context.tenantId,id,JSON.stringify(updated)]);await this.audit(client,context,'lidar_calculation_scan',id,'proposal_built',current,updated,`${proposal.items.length} calculatieposten · € ${proposal.directCost}`);return updated})
   }

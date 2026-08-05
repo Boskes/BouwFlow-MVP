@@ -3920,6 +3920,14 @@ function Calculations({
   const [lidarCalculationOpen,setLidarCalculationOpen]=useState(false);
   const [previewQuote, setPreviewQuote] = useState<Quote>();
   const [boqClipboard,setBoqClipboard]=useState<{sourceCalculationId:string;items:BoqItem[]} >({sourceCalculationId:'',items:[]});
+  const lidarCalculationPersistence=useMemo(()=>({
+    list:actions.listCalculationLidarScans,
+    create:actions.createCalculationLidarScan,
+    downloadArtifact:actions.downloadLidarArtifact,
+    build:actions.buildLidarCalculationProposal,
+    approve:actions.approveLidarCalculationProposal,
+    apply:actions.applyLidarCalculationProposal,
+  }),[actions]);
   const calculation =
     state.calculations.find((item) => item.id === selectedId) ??
     state.calculations.at(-1);
@@ -4355,7 +4363,7 @@ function Calculations({
           }}
         />
       )}
-      {lidarCalculationOpen&&<Suspense fallback={null}><LidarCalculationWorkspace calculationId={calculation.id} calculationNumber={calculation.number} projectName={opportunity?.title??calculation.number} actor={state.companyUsers.find(user=>user.id===state.currentUserId)?.displayName??'Calculator'} persistence={{list:actions.listCalculationLidarScans,create:actions.createCalculationLidarScan,build:actions.buildLidarCalculationProposal,approve:actions.approveLidarCalculationProposal,apply:actions.applyLidarCalculationProposal}} onApplied={count=>{setTransferNotice(`${count} LiDAR-post${count===1?'':'en'} aan de calculatie toegevoegd.`);setLastTransferItemIds([])}} onClose={()=>setLidarCalculationOpen(false)}/></Suspense>}
+      {lidarCalculationOpen&&<Suspense fallback={null}><LidarCalculationWorkspace calculationId={calculation.id} calculationNumber={calculation.number} projectName={opportunity?.title??calculation.number} actor={state.companyUsers.find(user=>user.id===state.currentUserId)?.displayName??'Calculator'} persistence={lidarCalculationPersistence} onApplied={count=>{setTransferNotice(`${count} LiDAR-post${count===1?'':'en'} aan de calculatie toegevoegd.`);setLastTransferItemIds([])}} onClose={()=>setLidarCalculationOpen(false)}/></Suspense>}
       {importOpen && (
         <ImportDialog
           calculation={calculation}
@@ -10424,6 +10432,17 @@ function ProgressStatementDialog({
   const [bimWorkPackageId,setBimWorkPackageId] = useState<string>();
   const [measurementSelection,setMeasurementSelection] = useState<{workPackageId:string;method:'Meetstaat'|'Dagrapporten'}>();
   const [priceRevisionBlocked,setPriceRevisionBlocked]=useState(Boolean(contract?.priceRevisionClause));
+  const lidarPersistence=useMemo(()=>({
+    list:actions.listLidarScans,
+    create:actions.createLidarScan,
+    upload:actions.uploadLidarArtifact,
+    downloadArtifact:actions.downloadLidarArtifact,
+    register:actions.registerLidarScan,
+    analyze:actions.analyzeLidarScan,
+    approve:actions.approveLidarProposal,
+    createBcf:actions.createLidarBcfTopic,
+    publishAsBuilt:actions.publishLidarAsBuilt,
+  }),[actions]);
   const [form, setForm] = useState<ProgressStatementInput>(
     statement
       ? {
@@ -10779,7 +10798,7 @@ function ProgressStatementDialog({
           <button className="primary" disabled={priceRevisionBlocked}>Concept opslaan</button>
         </div>
       </form>
-      {bimWorkPackageId&&<Suspense fallback={null}><BimProgressDialog projectId={project.id} lidarPersistence={{list:actions.listLidarScans,create:actions.createLidarScan,upload:actions.uploadLidarArtifact,register:actions.registerLidarScan,analyze:actions.analyzeLidarScan,approve:actions.approveLidarProposal,createBcf:actions.createLidarBcfTopic,publishAsBuilt:actions.publishLidarAsBuilt}} workPackages={project.workPackages} initialWorkPackageId={bimWorkPackageId} previousPct={previousLines.get(bimWorkPackageId)?.cumulativeProgressPct??0} preparedBy={form.preparedBy??""} initialEvidence={form.lines.find(item=>item.workPackageId===bimWorkPackageId)?.bimEvidence} onClose={()=>setBimWorkPackageId(undefined)} onApply={(workPackageId,progressPct,evidence)=>{setForm(current=>({...current,qualityChecklist:{measurementsVerified:current.qualityChecklist?.measurementsVerified??false,evidenceComplete:current.qualityChecklist?.evidenceComplete??false,changesApproved:current.qualityChecklist?.changesApproved??false,bimModelValidated:evidence.status==="Gecontroleerd"},lines:current.lines.map(item=>item.workPackageId===workPackageId?{...item,cumulativeProgressPct:progressPct,measurementMethod:"BIM",measuredQuantity:evidence.verifiedQuantity,unit:evidence.unit,bimEvidence:evidence,comment:`${evidence.elementCount} BIM-elementen · ${evidence.modelName} · ${evidence.modelVersion}`}:item)}));setBimWorkPackageId(undefined)}}/></Suspense>}
+      {bimWorkPackageId&&<Suspense fallback={null}><BimProgressDialog projectId={project.id} lidarPersistence={lidarPersistence} workPackages={project.workPackages} initialWorkPackageId={bimWorkPackageId} previousPct={previousLines.get(bimWorkPackageId)?.cumulativeProgressPct??0} preparedBy={form.preparedBy??""} initialEvidence={form.lines.find(item=>item.workPackageId===bimWorkPackageId)?.bimEvidence} onClose={()=>setBimWorkPackageId(undefined)} onApply={(workPackageId,progressPct,evidence)=>{setForm(current=>({...current,qualityChecklist:{measurementsVerified:current.qualityChecklist?.measurementsVerified??false,evidenceComplete:current.qualityChecklist?.evidenceComplete??false,changesApproved:current.qualityChecklist?.changesApproved??false,bimModelValidated:evidence.status==="Gecontroleerd"},lines:current.lines.map(item=>item.workPackageId===workPackageId?{...item,cumulativeProgressPct:progressPct,measurementMethod:"BIM",measuredQuantity:evidence.verifiedQuantity,unit:evidence.unit,bimEvidence:evidence,comment:`${evidence.elementCount} BIM-elementen · ${evidence.modelName} · ${evidence.modelVersion}`}:item)}));setBimWorkPackageId(undefined)}}/></Suspense>}
       {measurementSelection&&<Suspense fallback={null}><ProgressMeasurementDialog calculation={calculation} project={project} workPackage={project.workPackages.find(item=>item.id===measurementSelection.workPackageId)!} method={measurementSelection.method} dailyReports={dailyReports} periodEnd={form.periodEnd} actor={form.preparedBy||actor} line={form.lines.find(item=>item.workPackageId===measurementSelection.workPackageId)!} previousPct={previousLines.get(measurementSelection.workPackageId)?.cumulativeProgressPct??0} onClose={()=>setMeasurementSelection(undefined)} onApply={patch=>{setForm(current=>({...current,qualityChecklist:{measurementsVerified:true,evidenceComplete:current.qualityChecklist?.evidenceComplete??false,changesApproved:current.qualityChecklist?.changesApproved??false,bimModelValidated:current.qualityChecklist?.bimModelValidated??false},lines:current.lines.map(item=>item.workPackageId===measurementSelection.workPackageId?{...item,...patch}:item)}));setMeasurementSelection(undefined)}}/></Suspense>}
     </div>
   );

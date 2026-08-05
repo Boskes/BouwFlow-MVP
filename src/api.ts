@@ -282,6 +282,12 @@ export class BouwFlowApi {
   createLidarBcfTopic(scanId:string,input:Omit<LidarBcfTopic,'id'|'scanSessionId'|'status'|'createdAt'>){return this.request<LidarScanSession>(`/api/lidar-scans/${encodeURIComponent(scanId)}/bcf-topics`,{method:'POST',body:JSON.stringify(input)})}
   publishLidarAsBuilt(scanId:string,createdBy:string){return this.request<LidarScanSession>(`/api/lidar-scans/${encodeURIComponent(scanId)}/as-built`,{method:'POST',body:JSON.stringify({createdBy})})}
   uploadLidarArtifact(scanId:string,file:File,input:{kind:LidarArtifact['kind'];capturedAt:string}){const body=new FormData();body.append('kind',input.kind);body.append('capturedAt',input.capturedAt);body.append('file',file,file.name);return this.request<LidarScanSession>(`/api/lidar-scans/${encodeURIComponent(scanId)}/artifacts`,{method:'POST',body})}
+  async downloadLidarArtifact(scanId:string,artifactId:string){
+    const token=await this.tokenProvider?.()
+    const response=await this.fetchWithRateLimit(`${this.baseUrl}/api/lidar-scans/${encodeURIComponent(scanId)}/artifacts/${encodeURIComponent(artifactId)}/file`,{headers:{Accept:'*/*',...(token?{Authorization:`Bearer ${token}`}:{})}})
+    if(!response.ok){const payload=await response.json().catch(()=>undefined) as {message?:string}|undefined;throw new ApiError(payload?.message??`LiDAR-bewijs kon niet worden geladen (${response.status})`,response.status)}
+    return response.blob()
+  }
   buildLidarCalculationProposal(scanId:string,elements:LidarSurveyElement[],assignments:LidarWorkAssignment[]){return this.request<LidarScanSession>(`/api/lidar-scans/${encodeURIComponent(scanId)}/calculation-proposal`,{method:'POST',body:JSON.stringify({elements,assignments})})}
   approveLidarCalculationProposal(scanId:string,approvedBy:string){return this.request<LidarScanSession>(`/api/lidar-scans/${encodeURIComponent(scanId)}/calculation-proposal/approve`,{method:'POST',body:JSON.stringify({approvedBy})})}
   applyLidarCalculationProposal(scanId:string){return this.request<LidarScanSession>(`/api/lidar-scans/${encodeURIComponent(scanId)}/calculation-proposal/apply`,{method:'POST'})}
@@ -498,6 +504,17 @@ export class BouwFlowApi {
     return this.request<T>(path, { method: 'POST', body })
   }
 
+  private async fetchWithRateLimit(url:string,init:RequestInit){
+    let response:Response
+    for(let attempt=0;;attempt+=1){
+      response=await this.fetcher(url,init)
+      if(response.status!==429||attempt>=1)return response
+      const raw=response.headers.get('Retry-After')?.trim()
+      const seconds=raw&&/^\d+$/.test(raw)?Number(raw):1
+      await new Promise(resolve=>globalThis.setTimeout(resolve,Math.min(60,Math.max(0,seconds))*1_000))
+    }
+  }
+
   private async request<T>(path: string, init: RequestInit = {}): Promise<T> {
     const token = await this.tokenProvider?.()
     const method = (init.method ?? 'GET').toUpperCase()
@@ -515,7 +532,7 @@ export class BouwFlowApi {
     const url = `${this.baseUrl}${path}`
     let response: Response
     try {
-      response = await this.fetcher(url, { ...init, headers })
+      response = await this.fetchWithRateLimit(url, { ...init, headers })
     } catch (error) {
       if (!mutating || !init.body || !idempotencyKey || !canQueueOffline()) throw error
       const formData = init.body instanceof FormData

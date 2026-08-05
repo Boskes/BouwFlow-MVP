@@ -739,6 +739,7 @@ export async function buildApp({ pool, authMode = 'development', logger = false,
   })
 
   const lidarIdParams=z.object({id:z.uuid()})
+  const lidarArtifactParams=z.object({id:z.uuid(),artifactId:z.uuid()})
   const lidarProposalParams=z.object({id:z.uuid(),proposalId:z.string().trim().min(1).max(300)})
 
   app.get('/api/lidar/work-catalog', { preHandler: requireRoles('Administrator','Calculator','Tender manager','Projectmanager','Werfleider','Werkvoorbereider') }, async ()=>LIDAR_WORK_CATALOG)
@@ -761,6 +762,13 @@ export async function buildApp({ pool, authMode = 'development', logger = false,
 
   app.post('/api/lidar-scans/:id/artifacts', { preHandler: requireRoles('Administrator','Projectmanager','Werfleider','Werkvoorbereider','Calculator') }, async (request,reply)=>{
     const {id}=lidarIdParams.parse(request.params);const upload=await request.file();if(!upload)throw new RepositoryError('Selecteer een LiDAR-bewijsbestand',400);const data=await upload.toBuffer();const fields=upload.fields as unknown as Record<string,unknown>;const input=lidarArtifactSchema.parse({kind:multipartField(fields,'kind'),capturedAt:multipartField(fields,'capturedAt')});return reply.code(201).send(await repository.uploadLidarArtifact(request.context,id,input,{fileName:upload.filename,mimeType:upload.mimetype,data}))
+  })
+
+  app.get('/api/lidar-scans/:id/artifacts/:artifactId/file', { preHandler: requireRoles('Administrator','Calculator','Tender manager','Projectmanager','Werfleider','Werkvoorbereider','Kwaliteitsverantwoordelijke') }, async (request,reply)=>{
+    const {id,artifactId}=lidarArtifactParams.parse(request.params)
+    const {artifact,data}=await repository.getLidarArtifactFile(request.context,id,artifactId)
+    const safeName=artifact.fileName.replace(/["\r\n]/g,'_')
+    return reply.header('Content-Type',artifact.mimeType).header('Content-Disposition',`inline; filename="${safeName}"`).header('Cache-Control','private, max-age=300').send(data)
   })
 
   app.post('/api/lidar-scans/:id/calculation-proposal', { preHandler: requireRoles('Administrator','Calculator','Tender manager','Werkvoorbereider') }, async request=>{
