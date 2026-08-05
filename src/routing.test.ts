@@ -5,6 +5,8 @@ describe('permanente BouwFlow-routes', () => {
   it('vertaalt iedere module naar een stabiel pad', () => {
     expect(workspacePath({ page: 'dashboard' })).toBe('/')
     expect(workspacePath({ page: 'my-work' })).toBe('/my-work')
+    expect(workspacePath({ page: 'specification' })).toBe('/application-specification')
+    expect(workspaceRouteFromLocation({ pathname: '/application-specification' })).toEqual({ page: 'specification' })
     expect(workspacePath({ page: 'dossiers' })).toBe('/dossiers')
     expect(workspacePath({ page: 'planning' })).toBe('/planning')
     expect(workspacePath({ page: 'client-portal' })).toBe('/portal/client')

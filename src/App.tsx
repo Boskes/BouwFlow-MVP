@@ -266,11 +266,13 @@ import { appendWorkAudit, defaultWorkCenterPreferences, deriveAllWorkItems, norm
 
 const MyWorkPage = lazy(() => import('./WorkCenter').then(module => ({ default: module.MyWorkPage })))
 const RoleDashboard = lazy(() => import('./WorkCenter').then(module => ({ default: module.RoleDashboard })))
+const ApplicationSpecification = lazy(() => import('./ApplicationSpecification'))
 
 const nav = [
   { id: "dashboard" as Page, label: "Dashboard", icon: LayoutDashboard },
   { id: "my-work" as Page, label: "Mijn werk", icon: ListChecks },
   { id: "dossiers" as Page, label: "Dossiers", icon: FolderOpen },
+  { id: "specification" as Page, label: "Applicatiespecificatie", icon: FileText },
   { id: "crm" as Page, label: "CRM & Relaties", icon: Users },
   {
     id: "opportunities" as Page,
@@ -329,7 +331,7 @@ const navigationGroups: NavigationGroup[] = [
 ];
 
 const navByPage = new Map(nav.map((item) => [item.id, item]));
-const quickNavigationPages = new Set<Page>(["dashboard", "my-work", "dossiers"]);
+const quickNavigationPages = new Set<Page>(["dashboard", "my-work", "dossiers", "specification"]);
 
 const money = (value: number) =>
   new Intl.NumberFormat("nl-BE", {
@@ -2556,7 +2558,7 @@ function App() {
     id: "start",
     label: "Start",
     icon: LayoutDashboard,
-    pageIds: ["dashboard", "my-work", "dossiers"] as Page[],
+    pageIds: ["dashboard", "my-work", "dossiers", "specification"] as Page[],
   };
   const moduleWorkspaceItems = moduleWorkspaceGroup.pageIds
     .map((id) => visibleNav.find((item) => item.id === id))
@@ -2903,6 +2905,7 @@ function App() {
             onUploadDocument={uploadWorkItemDocument}
           /></Suspense>}
           {page === "dossiers" && <DossierRegister state={scopedState} preferences={dossierPreferences} onOpen={openDossier} onOpenNewTab={openDossierNewTab} onToggleFavorite={toggleDossierFavorite} />}
+          {page === "specification" && <Suspense fallback={<section className="panel"><p className="muted">Applicatiespecificatie laden…</p></section>}><ApplicationSpecification/></Suspense>}
           {page === "crm" && <CRM state={presentationState} actions={actions} onOpenDossier={openDossier} />}
           {page === "opportunities" && (
             <><Opportunities
