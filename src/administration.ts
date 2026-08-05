@@ -50,6 +50,7 @@ export const canPerform = (role: string | undefined, capability: AccessCapabilit
 
 export const pageLabels: Record<Page, string> = {
   'my-work':'Mijn werk',
+  specification:'Applicatiespecificatie',
   dashboard:'Dashboard', dossiers:'Dossiers', crm:'CRM & Relaties', opportunities:'Opportuniteiten', calculations:'Calculaties', 'cost-library':'Kostbibliotheek', projects:'Projecten', planning:'Planning', hr:'HR & Verlof', resources:'Materieel & Voorraad', site:'Werf', changes:'Meerwerken', financial:'Vorderingen', control:'Projectcontrole', procurement:'Inkoop', cashflow:'Cashflow', 'post-calculation':'Nacalculatie', documents:'Documenten', mailbox:'E-mail', qhse:'QHSE', subcontractors:'Onderaannemers', consortia:'THV & Combinaties', integrations:'ERP-integraties', ai:'AI-assistent', closeout:'Contract & Oplevering', 'client-portal':'Klantportaal', 'subcontractor-portal':'Onderaannemersportaal', 'supplier-portal':'Leveranciersportaal', company:'Bedrijfsstructuur', access:'Instellingen & Beheer', 'entity-finance':'Financiële entiteiten', 'notification-settings':'Peppol-meldingen',
 }
 

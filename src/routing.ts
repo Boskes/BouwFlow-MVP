@@ -44,7 +44,7 @@ export interface WorkspaceRoute {
 }
 
 const pagePaths: Record<Page, string> = {
-  dashboard: '/', 'my-work': '/my-work', dossiers: '/dossiers', crm: '/crm', opportunities: '/opportunities', calculations: '/calculations',
+  dashboard: '/', 'my-work': '/my-work', dossiers: '/dossiers', specification: '/application-specification', crm: '/crm', opportunities: '/opportunities', calculations: '/calculations',
   'cost-library': '/cost-library', projects: '/projects', planning: '/planning', hr: '/hr',
   resources: '/resources', site: '/site', changes: '/change-orders', financial: '/progress-statements',
   control: '/project-control', procurement: '/procurement', cashflow: '/cashflow',

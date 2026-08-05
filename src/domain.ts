@@ -1,4 +1,4 @@
-export type Page = 'dashboard' | 'my-work' | 'dossiers' | 'crm' | 'opportunities' | 'calculations' | 'cost-library' | 'projects' | 'planning' | 'hr' | 'resources' | 'site' | 'changes' | 'financial' | 'control' | 'procurement' | 'cashflow' | 'post-calculation' | 'documents' | 'mailbox' | 'qhse' | 'subcontractors' | 'consortia' | 'integrations' | 'ai' | 'closeout' | 'client-portal' | 'subcontractor-portal' | 'supplier-portal' | 'company' | 'access' | 'entity-finance' | 'notification-settings'
+export type Page = 'dashboard' | 'my-work' | 'dossiers' | 'specification' | 'crm' | 'opportunities' | 'calculations' | 'cost-library' | 'projects' | 'planning' | 'hr' | 'resources' | 'site' | 'changes' | 'financial' | 'control' | 'procurement' | 'cashflow' | 'post-calculation' | 'documents' | 'mailbox' | 'qhse' | 'subcontractors' | 'consortia' | 'integrations' | 'ai' | 'closeout' | 'client-portal' | 'subcontractor-portal' | 'supplier-portal' | 'company' | 'access' | 'entity-finance' | 'notification-settings'
 
 export interface MailboxRecipient { name: string; address: string }
 export interface MailboxMessage {

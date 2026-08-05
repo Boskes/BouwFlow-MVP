@@ -5,6 +5,7 @@ describe('rolgebonden modulenavigatie', () => {
   it('geeft een calculator calculatie maar geen HR- of toegangsbeheer', () => {
     expect(canAccessPage('Calculator', 'calculations')).toBe(true)
     expect(canAccessPage('Calculator', 'dossiers')).toBe(true)
+    expect(canAccessPage('Calculator', 'specification')).toBe(true)
     expect(canAccessPage('Calculator', 'hr')).toBe(false)
     expect(canAccessPage('Calculator', 'access')).toBe(false)
   })
@@ -25,6 +26,7 @@ describe('rolgebonden modulenavigatie', () => {
   it('scheidt externe portalen strikt per externe rol', () => {
     expect(canAccessPage('Klant', 'dashboard')).toBe(true)
     expect(canAccessPage('Klant', 'my-work')).toBe(true)
+    expect(canAccessPage('Klant', 'specification')).toBe(false)
     expect(canAccessPage('Klant', 'client-portal')).toBe(true)
     expect(canAccessPage('Klant', 'supplier-portal')).toBe(false)
     expect(canAccessPage('Onderaannemer', 'subcontractor-portal')).toBe(true)

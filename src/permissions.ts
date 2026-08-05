@@ -15,6 +15,7 @@ export const pageRoleAccess: Record<Page, ReadonlySet<string>> = {
   dashboard: roles(...allInternalRoles, 'Klant', 'Onderaannemer', 'Leverancier'),
   'my-work': roles(...allInternalRoles, 'Klant', 'Onderaannemer', 'Leverancier'),
   dossiers: roles(...allInternalRoles),
+  specification: roles(...allInternalRoles),
   crm: roles('Administrator', 'Directie', 'Commercieel medewerker', 'Tender manager', 'Calculator', 'Projectdirecteur'),
   opportunities: roles('Administrator', 'Directie', 'Commercieel medewerker', 'Tender manager', 'Calculator', 'Projectdirecteur'),
   calculations: roles('Administrator', 'Directie', 'Commercieel medewerker', 'Tender manager', 'Calculator', 'Projectdirecteur'),
