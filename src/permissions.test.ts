@@ -23,6 +23,8 @@ describe('rolgebonden modulenavigatie', () => {
   })
 
   it('scheidt externe portalen strikt per externe rol', () => {
+    expect(canAccessPage('Klant', 'dashboard')).toBe(true)
+    expect(canAccessPage('Klant', 'my-work')).toBe(true)
     expect(canAccessPage('Klant', 'client-portal')).toBe(true)
     expect(canAccessPage('Klant', 'supplier-portal')).toBe(false)
     expect(canAccessPage('Onderaannemer', 'subcontractor-portal')).toBe(true)

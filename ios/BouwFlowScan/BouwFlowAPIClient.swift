@@ -15,6 +15,10 @@ struct BouwFlowAPIClient {
         throw BouwFlowAPIError.rejected(401, "Koppel hier de bestaande MSAL access-tokenprovider.")
     }
 
+    static func production(accessToken: @escaping () async throws -> String) -> BouwFlowAPIClient {
+        BouwFlowAPIClient(baseURL: URL(string: "https://aifestival.be")!, accessToken: accessToken)
+    }
+
     private func request(path: String, method: String = "POST") async throws -> URLRequest {
         var request = URLRequest(url: baseURL.appending(path: path))
         request.httpMethod = method
@@ -26,6 +30,29 @@ struct BouwFlowAPIClient {
         var request = try await request(path: "api/projects/\(projectId)/lidar-scans")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONEncoder.bouwFlow.encode(payload)
+        return try await send(request)
+    }
+
+    func createCalculationScan(calculationId: String, payload: ScanCreatePayload) async throws -> ScanSessionResponse {
+        var request = try await request(path: "api/calculations/\(calculationId)/lidar-scans")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONEncoder.bouwFlow.encode(payload)
+        return try await send(request)
+    }
+
+    func bootstrap() async throws -> MobileBootstrap {
+        try await send(request(path: "api/bootstrap", method: "GET"))
+    }
+
+    func workCatalog() async throws -> [MobileLidarWork] {
+        try await send(request(path: "api/lidar/work-catalog", method: "GET"))
+    }
+
+    func buildCalculationProposal(scanId: String, elements: [SurveyElementPayload], assignments: [WorkAssignmentPayload]) async throws -> ScanSessionResponse {
+        struct Body: Encodable { let elements: [SurveyElementPayload]; let assignments: [WorkAssignmentPayload] }
+        var request = try await request(path: "api/lidar-scans/\(scanId)/calculation-proposal")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONEncoder.bouwFlow.encode(Body(elements: elements, assignments: assignments))
         return try await send(request)
     }
 

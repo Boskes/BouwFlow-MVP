@@ -2,6 +2,14 @@ import { z } from 'zod'
 
 export const uuidParams = z.object({ id: z.uuid() })
 
+export const workReminderSchema = z.object({
+  taskId: z.string().trim().min(1).max(250),
+  title: z.string().trim().min(3).max(250),
+  message: z.string().trim().min(3).max(5_000),
+  channel: z.enum(['E-mail', 'Teams']),
+  destination: z.string().trim().min(2).max(500),
+}).strict()
+
 export const isValidBelgianEnterpriseNumber = (value: string) => {
   const digits = value.replace(/\D/g, '')
   return /^[01]\d{9}$/.test(digits) && 97 - (Number(digits.slice(0, 8)) % 97) === Number(digits.slice(8))
@@ -243,10 +251,11 @@ export const companyUserAccessSchema = z.object({
 const companyRoleSchema = z.enum(['Administrator','Directie','Commercieel medewerker','Calculator','Tender manager','Projectdirecteur','Projectmanager','Werkvoorbereider','Planner','Werfleider','Ploegbaas','Arbeider','Aankoper','Magazijnier','Financiële administratie','HR','Preventieadviseur','Kwaliteitsverantwoordelijke','Klant','Onderaannemer','Leverancier'])
 
 export const companyUserProfileSchema = z.object({
-  displayName:z.string().trim().min(2).max(200), email:z.email().max(320), role:companyRoleSchema,
+  displayName:z.string().trim().min(2).max(200), email:z.email().max(320), role:companyRoleSchema, roles:z.array(companyRoleSchema).min(1).max(8).optional(),
   status:z.enum(['Uitgenodigd','Actief','Geblokkeerd']), employeeId:z.uuid().optional(), organizationId:z.uuid().optional(), subcontractorId:z.uuid().optional(), supplierId:z.uuid().optional(),
   allLegalEntities:z.boolean(), legalEntityIds:z.array(z.uuid()).max(100), allProjects:z.boolean(), projectIds:z.array(z.uuid()).max(500),
 }).superRefine((value,context)=>{
+  if(value.roles&&!value.roles.includes(value.role))context.addIssue({code:'custom',message:'De primaire rol moet ook bij de dashboardrollen staan',path:['roles']})
   if(!value.allLegalEntities&&!value.legalEntityIds.length)context.addIssue({code:'custom',message:'Selecteer minstens één juridische entiteit',path:['legalEntityIds']})
   if(!value.allProjects&&!value.projectIds.length)context.addIssue({code:'custom',message:'Selecteer minstens één project',path:['projectIds']})
   if(value.role==='Klant'&&!value.organizationId)context.addIssue({code:'custom',message:'Koppel de klantaccount aan een relatie',path:['organizationId']})
@@ -738,12 +747,19 @@ export const lidarControlPointSchema=z.object({id:z.string().trim().min(1).max(1
 export const lidarObservationSchema=z.object({
   id:z.string().trim().min(1).max(150),ifcGuid:z.string().trim().min(1).max(150),label:z.string().trim().min(1).max(250),category:z.string().trim().min(1).max(100),workPackageId:z.uuid(),
   plannedQuantity:z.number().nonnegative().max(1_000_000_000),observedQuantity:z.number().nonnegative().max(1_000_000_000),unit:z.enum(['m\u00b2','m\u00b3','m','st']),measurementRule:z.enum(['Oppervlakte','Volume','Lengte','Aanwezigheid','Foto en controle']),
-  surfaceCoveragePct:z.number().min(0).max(100),visibilityPct:z.number().min(0).max(100),confidencePct:z.number().min(0).max(100),deviationMm:z.number().min(-100_000).max(100_000),photoEvidenceCount:z.number().int().nonnegative().max(10_000),detected:z.boolean(),
+  surfaceCoveragePct:z.number().min(0).max(100),visibilityPct:z.number().min(0).max(100),confidencePct:z.number().min(0).max(100),deviationMm:z.number().min(-100_000).max(100_000),photoEvidenceCount:z.number().int().nonnegative().max(10_000),dailyReportIds:z.array(z.uuid()).max(1_000).optional(),inspectionDocumentIds:z.array(z.uuid()).max(1_000).optional(),manuallyConfirmed:z.boolean().optional(),detected:z.boolean(),
+})
+export const lidarSurveyElementSchema=z.object({
+  id:z.string().trim().min(1).max(150),roomId:z.string().trim().min(1).max(150),roomName:z.string().trim().min(1).max(200),kind:z.enum(['Ruimte','Wand','Vloer','Plafond','Deur','Raam','Kolom','Trap','Dak','Stopcontact','Schakelaar','Lichtpunt','Elektrisch bord','Datapunt','Detector','Leiding','Afvoer','Ventilatiekanaal','Sanitair toestel','Verwarmingstoestel','Technische installatie','Buitenobject','Vrij element']),label:z.string().trim().min(1).max(250),sourceElementId:z.string().trim().max(150).optional(),
+  areaM2:z.number().nonnegative().max(1_000_000).optional(),netAreaM2:z.number().nonnegative().max(1_000_000).optional(),lengthM:z.number().nonnegative().max(1_000_000).optional(),volumeM3:z.number().nonnegative().max(1_000_000).optional(),count:z.number().nonnegative().max(1_000_000).optional(),confidencePct:z.number().min(0).max(100),photoArtifactIds:z.array(z.string().trim().min(1).max(150)).max(1_000).default([]),
+})
+export const lidarWorkAssignmentSchema=z.object({
+  id:z.string().trim().min(1).max(150),catalogCode:z.string().trim().min(2).max(50),elementIds:z.array(z.string().trim().min(1).max(150)).min(1).max(10_000),description:z.string().trim().max(500).optional(),quantityOverride:z.number().positive().max(1_000_000_000).optional(),wastePct:z.number().min(0).max(1_000).optional(),notes:z.string().trim().max(2_000).optional(),photoArtifactIds:z.array(z.string().trim().min(1).max(150)).max(1_000).default([]),dailyReportIds:z.array(z.uuid()).max(1_000).default([]),inspectionDocumentIds:z.array(z.uuid()).max(1_000).default([]),manuallyConfirmed:z.boolean().default(false),
 })
 export const lidarScanSchema=z.object({
   modelId:z.string().trim().min(1).max(150),modelName:z.string().trim().min(1).max(250),modelVersion:z.string().trim().min(1).max(100),zone:z.string().trim().min(1).max(200),storey:z.string().trim().min(1).max(150),
   deviceName:z.string().trim().min(1).max(150),deviceSupportsLidar:z.boolean(),captureMode:z.enum(['RoomPlan','ARKit mesh','Gecombineerd']),capturedBy:z.string().trim().min(2).max(150),capturedAt:z.iso.datetime(),notes:z.string().trim().max(2_000),
-  controlPoints:z.array(lidarControlPointSchema).max(100).default([]),observations:z.array(lidarObservationSchema).max(50_000).default([]),
+  purpose:z.enum(['Calculatie-opname','Nulmeting','Vorderingsopname','As-built']).optional(),baselineScanId:z.uuid().optional(),controlPoints:z.array(lidarControlPointSchema).max(100).default([]),observations:z.array(lidarObservationSchema).max(50_000).default([]),surveyElements:z.array(lidarSurveyElementSchema).max(50_000).default([]),workAssignments:z.array(lidarWorkAssignmentSchema).max(20_000).default([]),
 })
 export const lidarRegistrationSchema=z.object({controlPoints:z.array(lidarControlPointSchema).min(3).max(100),registeredBy:z.string().trim().min(2).max(150)})
 export const lidarAnalysisSchema=z.object({observations:z.array(lidarObservationSchema).min(1).max(50_000)})
@@ -751,6 +767,8 @@ export const lidarApprovalSchema=z.object({approvedBy:z.string().trim().min(2).m
 export const lidarBcfSchema=z.object({title:z.string().trim().min(3).max(250),description:z.string().trim().min(3).max(5_000),priority:z.enum(['Laag','Normaal','Hoog','Kritiek']),ifcGuids:z.array(z.string().trim().min(1).max(150)).min(1).max(5_000),viewpoint:z.object({camera:lidarVectorSchema,direction:lidarVectorSchema,snapshotArtifactId:z.string().trim().min(1).max(150).optional()}),assignedTo:z.string().trim().max(150).optional(),dueDate:z.iso.date().optional(),createdBy:z.string().trim().min(2).max(150)})
 export const lidarAsBuiltSchema=z.object({createdBy:z.string().trim().min(2).max(150)})
 export const lidarArtifactSchema=z.object({kind:z.enum(['RoomPlan JSON','USDZ','Mesh','Puntenwolk','Foto','Dieptekaart']),capturedAt:z.iso.datetime()})
+export const lidarCalculationProposalSchema=z.object({elements:z.array(lidarSurveyElementSchema).min(1).max(50_000),assignments:z.array(lidarWorkAssignmentSchema).min(1).max(20_000)})
+export const lidarCalculationApprovalSchema=z.object({approvedBy:z.string().trim().min(2).max(150)})
 
 export const peppolAcceptanceReleaseSchema = z.object({
   releasedBy: z.string().trim().min(2).max(150),

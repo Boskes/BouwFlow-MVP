@@ -26,6 +26,7 @@ interface DemoUserRow {
   display_name: string
   email: string
   role: string
+  roles: string[] | string
   status: string
 }
 
@@ -39,7 +40,7 @@ export async function applyProductionDemoUser(
     throw new AuthorizationError('Alleen een BouwFlow-demo-administrator kan een testsessie starten')
   }
   const result = await pool.query<DemoUserRow>(
-    `SELECT id,display_name,email,role,status
+    `SELECT id,display_name,email,role,roles,status
        FROM users
       WHERE tenant_id=$1 AND id=$2 AND lower(email) LIKE $3
       LIMIT 1`,
@@ -52,7 +53,9 @@ export async function applyProductionDemoUser(
   context.userId = target.id
   context.displayName = target.display_name
   context.email = target.email
-  context.roles = [target.role]
+  let extraRoles: string[] = []
+  try { extraRoles = Array.isArray(target.roles) ? target.roles : JSON.parse(target.roles) as string[] } catch { extraRoles = [] }
+  context.roles = [...new Set([target.role, ...extraRoles])]
   context.configuredAccess = true
   return true
 }

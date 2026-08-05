@@ -937,6 +937,59 @@ describe('BouwFlow API', () => {
     expect(state.quotes[0].scenarioId).toBe(conservative.id)
   })
 
+  it('zet een iPhone LiDAR-opname om in calculatieposten en promoveert ze bij gunning tot nulmeting', async () => {
+    const opportunity = (await app.inject({ method: 'POST', url: '/api/opportunities', payload: { title: 'LiDAR renovatiewoning', organizationId, location: 'Heusden-Zolder', deadline: '2027-10-01', estimatedValue: 180000, probability: 65, recognition: 'D4' } })).json()
+    await approveOpportunity(app, opportunity.id)
+    const calculation = (await app.inject({ method: 'POST', url: `/api/opportunities/${opportunity.id}/calculations` })).json()
+    const scanResponse = await app.inject({
+      method: 'POST', url: `/api/calculations/${calculation.id}/lidar-scans`,
+      payload: {
+        modelId: 'roomplan-renovatie-01', modelName: 'iPhone RoomPlan renovatiewoning', modelVersion: 'OPNAME-01', zone: 'Leefruimte', storey: 'Gelijkvloers',
+        deviceName: 'iPhone Pro', deviceSupportsLidar: true, captureMode: 'Gecombineerd', capturedBy: 'Jurgen Bosmans', capturedAt: '2027-06-12T08:30:00.000Z',
+        notes: 'LiDAR, foto en manuele opname voor calculatie', purpose: 'Calculatie-opname', controlPoints: [], observations: [], surveyElements: [], workAssignments: [],
+      },
+    })
+    expect(scanResponse.statusCode, scanResponse.body).toBe(201)
+    const scan = scanResponse.json()
+    expect(scan).toMatchObject({ calculationId: calculation.id, opportunityId: opportunity.id, purpose: 'Calculatie-opname', status: 'Opgenomen' })
+
+    const elements = [
+      { id: 'room-living', roomId: 'living', roomName: 'Leefruimte', kind: 'Ruimte', label: 'Leefruimte', areaM2: 31.5, lengthM: 23.4, count: 1, confidencePct: 98, photoArtifactIds: [] },
+      { id: 'socket-living', roomId: 'living', roomName: 'Leefruimte', kind: 'Stopcontact', label: 'Nieuwe stopcontacten', count: 4, confidencePct: 91, photoArtifactIds: [] },
+    ]
+    const assignments = [
+      { id: 'assignment-sockets', catalogCode: 'ELE-010', elementIds: ['socket-living'], description: 'Vier nieuwe inbouwstopcontacten', photoArtifactIds: ['iphone-photo-reference'], dailyReportIds: [], inspectionDocumentIds: [], manuallyConfirmed: true },
+      { id: 'assignment-protection', catalogCode: 'VBR-010', elementIds: ['room-living'], description: 'Leefruimte afschermen', photoArtifactIds: ['iphone-photo-reference'], dailyReportIds: [], inspectionDocumentIds: [], manuallyConfirmed: true },
+    ]
+    const proposed = await app.inject({ method: 'POST', url: `/api/lidar-scans/${scan.id}/calculation-proposal`, payload: { elements, assignments } })
+    expect(proposed.statusCode, proposed.body).toBe(200)
+    expect(proposed.json().calculationProposal).toMatchObject({ status: 'Ter controle', directCost: 619.85 })
+    expect(proposed.json().calculationProposal.items).toEqual(expect.arrayContaining([expect.objectContaining({ catalogCode: 'ELE-010', quantity: 4.12, unit: 'punt' })]))
+
+    const approved = await app.inject({ method: 'POST', url: `/api/lidar-scans/${scan.id}/calculation-proposal/approve`, payload: { approvedBy: 'Jurgen Bosmans' } })
+    expect(approved.statusCode, approved.body).toBe(200)
+    expect(approved.json().calculationProposal).toMatchObject({ status: 'Goedgekeurd', approvedBy: 'Jurgen Bosmans' })
+    const applied = await app.inject({ method: 'POST', url: `/api/lidar-scans/${scan.id}/calculation-proposal/apply` })
+    expect(applied.statusCode, applied.body).toBe(200)
+    expect(applied.json().calculationProposal).toMatchObject({ status: 'Toegepast', createdItemIds: expect.any(Array) })
+
+    const state = (await app.inject({ method: 'GET', url: '/api/bootstrap' })).json()
+    const updatedCalculation = state.calculations.find((item: { id: string }) => item.id === calculation.id)
+    expect(updatedCalculation.items).toEqual(expect.arrayContaining([
+      expect.objectContaining({ code: 'ELE-010', description: 'Vier nieuwe inbouwstopcontacten', quantity: 4.12, unit: 'punt' }),
+      expect.objectContaining({ code: 'VBR-010', description: 'Leefruimte afschermen' }),
+    ]))
+    expect(updatedCalculation.items.find((item: { code: string }) => item.code === 'ELE-010').notes).toContain(`scan ${scan.id}`)
+
+    await app.inject({ method: 'POST', url: `/api/calculations/${calculation.id}/quotes` })
+    const award = await app.inject({ method: 'POST', url: `/api/calculations/${calculation.id}/award` })
+    expect(award.statusCode, award.body).toBe(201)
+    const project = award.json()
+    const projectScans = await app.inject({ method: 'GET', url: `/api/projects/${project.id}/lidar-scans` })
+    expect(projectScans.statusCode, projectScans.body).toBe(200)
+    expect(projectScans.json()).toEqual([expect.objectContaining({ id: scan.id, projectId: project.id, calculationId: calculation.id, purpose: 'Nulmeting' })])
+  })
+
   it('isoleert gegevens per tenant', async () => {
     const secondTenant = '20000000-0000-4000-8000-000000000001'
     const secondUser = '20000000-0000-4000-8000-000000000002'

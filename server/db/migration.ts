@@ -17,9 +17,12 @@ CREATE TABLE IF NOT EXISTS users (
   display_name text NOT NULL,
   email text NOT NULL,
   role text NOT NULL,
+  roles jsonb NOT NULL DEFAULT '[]'::jsonb,
   PRIMARY KEY (tenant_id, id),
   UNIQUE (tenant_id, entra_object_id)
 );
+
+ALTER TABLE users ADD COLUMN IF NOT EXISTS roles jsonb NOT NULL DEFAULT '[]'::jsonb;
 
 CREATE TABLE IF NOT EXISTS organizations (
   tenant_id uuid NOT NULL REFERENCES tenants(id),
@@ -1097,14 +1100,24 @@ ALTER TABLE blueprint_state ADD COLUMN IF NOT EXISTS workflow_definitions jsonb 
 CREATE TABLE IF NOT EXISTS lidar_scan_sessions (
   tenant_id uuid NOT NULL REFERENCES tenants(id),
   id uuid NOT NULL,
-  project_id uuid NOT NULL,
+  project_id uuid,
+  opportunity_id uuid,
+  calculation_id uuid,
+  purpose text NOT NULL DEFAULT 'Vorderingsopname',
   session_data jsonb NOT NULL,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (tenant_id,id),
-  FOREIGN KEY (tenant_id,project_id) REFERENCES projects(tenant_id,id) ON DELETE CASCADE
+  FOREIGN KEY (tenant_id,project_id) REFERENCES projects(tenant_id,id) ON DELETE CASCADE,
+  FOREIGN KEY (tenant_id,opportunity_id) REFERENCES opportunities(tenant_id,id) ON DELETE CASCADE,
+  FOREIGN KEY (tenant_id,calculation_id) REFERENCES calculations(tenant_id,id) ON DELETE CASCADE
 );
+ALTER TABLE lidar_scan_sessions ALTER COLUMN project_id DROP NOT NULL;
+ALTER TABLE lidar_scan_sessions ADD COLUMN IF NOT EXISTS opportunity_id uuid;
+ALTER TABLE lidar_scan_sessions ADD COLUMN IF NOT EXISTS calculation_id uuid;
+ALTER TABLE lidar_scan_sessions ADD COLUMN IF NOT EXISTS purpose text NOT NULL DEFAULT 'Vorderingsopname';
 CREATE INDEX IF NOT EXISTS idx_lidar_scans_project ON lidar_scan_sessions(tenant_id,project_id,updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_lidar_scans_calculation ON lidar_scan_sessions(tenant_id,calculation_id,updated_at DESC);
 
 CREATE TABLE IF NOT EXISTS checkinatwork_state (
   tenant_id uuid PRIMARY KEY REFERENCES tenants(id),

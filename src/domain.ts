@@ -1,4 +1,4 @@
-export type Page = 'dashboard' | 'dossiers' | 'crm' | 'opportunities' | 'calculations' | 'cost-library' | 'projects' | 'planning' | 'hr' | 'resources' | 'site' | 'changes' | 'financial' | 'control' | 'procurement' | 'cashflow' | 'post-calculation' | 'documents' | 'mailbox' | 'qhse' | 'subcontractors' | 'consortia' | 'integrations' | 'ai' | 'closeout' | 'client-portal' | 'subcontractor-portal' | 'supplier-portal' | 'company' | 'access' | 'entity-finance' | 'notification-settings'
+export type Page = 'dashboard' | 'my-work' | 'dossiers' | 'crm' | 'opportunities' | 'calculations' | 'cost-library' | 'projects' | 'planning' | 'hr' | 'resources' | 'site' | 'changes' | 'financial' | 'control' | 'procurement' | 'cashflow' | 'post-calculation' | 'documents' | 'mailbox' | 'qhse' | 'subcontractors' | 'consortia' | 'integrations' | 'ai' | 'closeout' | 'client-portal' | 'subcontractor-portal' | 'supplier-portal' | 'company' | 'access' | 'entity-finance' | 'notification-settings'
 
 export interface MailboxRecipient { name: string; address: string }
 export interface MailboxMessage {
@@ -25,6 +25,9 @@ export interface MailboxMessage {
 }
 export interface MailboxOverview { configured: boolean; mailbox: string; lastSynchronizedAt?: string; lastSyncError?: string; messages: MailboxMessage[] }
 export interface MailboxComposeInput { to: string[]; cc?: string[]; subject: string; body: string; organizationId?: string; opportunityId?: string; projectId?: string }
+export type WorkReminderChannel = 'E-mail' | 'Teams'
+export interface WorkReminderInput { taskId: string; title: string; message: string; channel: WorkReminderChannel; destination: string }
+export interface WorkReminderResult extends WorkReminderInput { id: string; status: 'Verzonden'; sentAt: string }
 export interface MailboxReplyInput { body: string }
 export interface MailboxLinkInput { organizationId?: string; opportunityId?: string; projectId?: string }
 
@@ -729,6 +732,8 @@ export interface CompanyUser {
   displayName: string
   email: string
   role: string
+  /** Extra functionele rollen waarmee de gebruiker bovenaan van dashboardcontext kan wisselen. */
+  roles?: string[]
   status?: 'Uitgenodigd' | 'Actief' | 'Geblokkeerd'
   employeeId?: string
   organizationId?: string
@@ -751,6 +756,7 @@ export interface CompanyUserProfileInput extends CompanyUserAccessInput {
   displayName: string
   email: string
   role: string
+  roles?: string[]
   status: 'Uitgenodigd' | 'Actief' | 'Geblokkeerd'
   employeeId?: string
   organizationId?: string
