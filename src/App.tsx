@@ -98,8 +98,11 @@ const ProgressPriceRevisionPanel = lazy(() => import('./PriceRevisionFlow').then
 const ContractWorkspaceDialogs = lazy(() => import('./ContractWorkspaceDialogs'))
 const ModuleWorkspaceTabs = lazy(() => import('./ModuleWorkspaceTabs'))
 const WorkspaceWindowButton = lazy(() => import('./WorkspaceWindowButton'))
+const CalculationTreePanel = lazy(() => import('./CalculationTreePanel'))
 const CheckinatworkWorkspace = lazy(() => import('./CheckinatworkWorkspace').then(module => ({ default: module.CheckinatworkWorkspace })))
 import type { IfcViewerCommand, IfcViewerElement } from "./BimIfcViewer";
+import { chapterDescendantIds, type CalculationTreeIntegration, type CalculationTreeNode } from './calculation-tree'
+import { openWorkspaceWindow } from './workspace-window'
 import {
   autoSchedulePlanningActivities,
   class8CalculationTemplates,
@@ -4247,9 +4250,16 @@ function Calculations({
           costLibraryVersions={state.costLibraryVersions}
           units={state.units}
           unitConversions={state.unitConversions}
+          project={project}
+          progressStatements={project ? state.progressStatements.filter(statement => statement.projectId === project.id) : []}
+          companyUsers={state.companyUsers}
+          versionCount={versions.length}
+          scenarioCount={scenarios.length}
           clipboard={boqClipboard}
           onCopy={(items)=>setBoqClipboard({sourceCalculationId:calculation.id,items:structuredClone(items)})}
           onExternalTransfer={requestTransfer}
+          onOpenBim={()=>setBimOpen(true)}
+          onOpenLidar={()=>setLidarCalculationOpen(true)}
           actions={actions}
         />
         <section className="panel quote-panel">
@@ -4596,6 +4606,8 @@ function BimCalculationWorkspace({ calculation, actions, onClose, onAdded }: { c
         itemRiskPct: group.elements.some(element=>element.warning) ? 3 : 0,
         markupPct: 0,
         notes: `BIM-bron: ${modelName} · GUID/ExpressID: ${group.elements.map(element=>element.globalId || element.id).join(", ")}`,
+        bimElementIds: group.elements.map(element=>element.globalId || element.id),
+        workflowStatus: group.elements.some(element=>element.warning) ? 'Ter controle' : 'In bewerking',
       });
       if (item) created += 1;
     }
@@ -5468,9 +5480,16 @@ function BoqEditor({
   costLibraryVersions,
   units,
   unitConversions,
+  project,
+  progressStatements,
+  companyUsers,
+  versionCount,
+  scenarioCount,
   clipboard,
   onCopy,
   onExternalTransfer,
+  onOpenBim,
+  onOpenLidar,
   actions,
 }: {
   calculation: Calculation;
@@ -5479,9 +5498,16 @@ function BoqEditor({
   costLibraryVersions: BouwFlowState["costLibraryVersions"];
   units: UnitDefinition[];
   unitConversions: BouwFlowState["unitConversions"];
+  project?: Project;
+  progressStatements: ProgressStatement[];
+  companyUsers: CompanyUser[];
+  versionCount: number;
+  scenarioCount: number;
   clipboard:{sourceCalculationId:string;items:BoqItem[]};
   onCopy:(items:BoqItem[])=>void;
   onExternalTransfer:(payload:CalculationTransferPayload,targetChapterId?:string|null)=>void;
+  onOpenBim:()=>void;
+  onOpenLidar:()=>void;
   actions: ReturnType<typeof useBouwFlowStore>["actions"];
 }) {
   const emptyItem = {
@@ -5503,6 +5529,9 @@ function BoqEditor({
   const [selectedItemIds, setSelectedItemIds] = useState<Set<string>>(new Set());
   const [targetChapterId, setTargetChapterId] = useState("");
   const [draggedItemId, setDraggedItemId] = useState<string>();
+  const viewPreferenceKey = `bouwflow-calculation-view:${calculation.id}`;
+  const [viewMode,setViewMode]=useState<'tree'|'split'|'table'>(()=>{try{const value=localStorage.getItem(viewPreferenceKey);return value==='tree'||value==='table'?value:'split'}catch{return 'split'}});
+  const [activeTreeNode,setActiveTreeNode]=useState<CalculationTreeNode>();
   const [bulkCostOpen, setBulkCostOpen] = useState(false);
   const [bulkAdjustmentOpen, setBulkAdjustmentOpen] = useState(false);
   const [bulkMessage, setBulkMessage] = useState("");
@@ -5543,10 +5572,20 @@ function BoqEditor({
   const ungroupedItems = useMemo(() => orderedItems.filter(
     item => !item.chapterId || !chapterIds.has(item.chapterId),
   ), [chapterIds, orderedItems]);
+  useEffect(()=>{try{localStorage.setItem(viewPreferenceKey,viewMode)}catch{/* Voorkeur is optioneel. */}},[viewMode,viewPreferenceKey]);
+  const activeChapterIds=useMemo(()=>activeTreeNode?.chapter?chapterDescendantIds(activeTreeNode.chapter.id,calculation.chapters):undefined,[activeTreeNode,calculation.chapters]);
+  const visibleItemId=activeTreeNode?.item?.id;
+  const tableChapters=activeTreeNode?.kind==='ungrouped'||(activeTreeNode?.item&&!activeTreeNode.item.chapterId)?[]:activeTreeNode?.item?orderedChapters.filter(chapter=>chapter.id===activeTreeNode.item?.chapterId):activeChapterIds?orderedChapters.filter(chapter=>activeChapterIds.has(chapter.id)):orderedChapters;
+  const tableUngroupedItems=activeTreeNode?.kind==='ungrouped'?ungroupedItems:activeTreeNode?.item&&!activeTreeNode.item.chapterId?ungroupedItems.filter(item=>item.id===activeTreeNode.item?.id):activeTreeNode?.kind==='root'||!activeTreeNode?ungroupedItems:[];
   const saveStructure = (chapters: BoqChapter[], items: BoqItem[]) => actions.updateCalculationStructure(calculation.id, {
-    chapters: chapters.map((chapter, index) => ({ id: chapter.id, sortOrder: index })),
+    chapters: chapters.map((chapter, index) => ({ id: chapter.id, code: chapter.code, name: chapter.name, sortOrder: index, parentChapterId: chapter.parentChapterId ?? null, responsibleUserId: chapter.responsibleUserId ?? null, workflowStatus: chapter.workflowStatus ?? 'Niet gestart' })),
     items: items.map((item, index) => ({ id: item.id, chapterId: item.chapterId, sortOrder: index })),
   });
+  const updateChapter=(chapter:BoqChapter,patch:Partial<BoqChapter>)=>void saveStructure(orderedChapters.map(entry=>entry.id===chapter.id?{...entry,...patch}:entry),orderedItems);
+  const addSubchapter=async(parent:BoqChapter)=>{const code=window.prompt('Code van het subhoofdstuk',`${parent.code}.10`);if(!code?.trim())return;const name=window.prompt('Naam van het subhoofdstuk','Nieuw subhoofdstuk');if(!name?.trim())return;await actions.addChapter(calculation.id,{code:code.trim(),name:name.trim(),parentChapterId:parent.id,responsibleUserId:parent.responsibleUserId,workflowStatus:'Niet gestart'})};
+  const moveItemToChapter=(itemId:string,chapterId:string|null)=>{const item=orderedItems.find(entry=>entry.id===itemId);if(!item)return;void saveStructure(orderedChapters,orderedItems.map(entry=>entry.id===itemId?{...entry,chapterId}:entry))};
+  const moveChapterToParent=(chapterId:string,parentChapterId:string|null)=>{if(parentChapterId&&chapterDescendantIds(chapterId,orderedChapters).has(parentChapterId))return;void saveStructure(orderedChapters.map(chapter=>chapter.id===chapterId?{...chapter,parentChapterId}:chapter),orderedItems)};
+  const openIntegration=(value:CalculationTreeIntegration)=>{if(value==='BIM')onOpenBim();else if(value==='LiDAR')onOpenLidar();else if(value==='Planning')openWorkspaceWindow('planning',project?{project:project.id}:{});else if(value==='Vordering')openWorkspaceWindow('financial',project?{project:project.id}:{});else if(project)openWorkspaceWindow('projects',{project:project.id})};
   const moveChapter = (chapterId: string, offset: number) => {
     const from = orderedChapters.findIndex((chapter) => chapter.id === chapterId);
     const to = from + offset;
@@ -5598,6 +5637,13 @@ function BoqEditor({
         eyebrow="Meetstaat en kostprijs"
         title={`${calculation.chapters.length} hoofdstukken · ${calculation.items.length} posten`}
       />
+      <div className="calculation-view-switch" role="group" aria-label="Weergave calculatie">
+        <span>Weergave</span>
+        <button type="button" className={viewMode==='tree'?'active':''} onClick={()=>setViewMode('tree')}><GitBranch size={14}/>Boom</button>
+        <button type="button" className={viewMode==='split'?'active':''} onClick={()=>setViewMode('split')}><PanelLeftOpen size={14}/>Boom + meetstaat</button>
+        <button type="button" className={viewMode==='table'?'active':''} onClick={()=>setViewMode('table')}><ClipboardList size={14}/>Meetstaat</button>
+        {activeTreeNode&&activeTreeNode.kind!=='root'&&<button type="button" className="calculation-filter-clear" onClick={()=>setActiveTreeNode(undefined)}><X size={13}/>Toon volledige calculatie</button>}
+      </div>
       <form className="chapter-form" onSubmit={addChapter}>
         <span>Nieuw hoofdstuk</span>
         <input
@@ -5636,7 +5682,9 @@ function BoqEditor({
         <span><GripVertical size={14}/>Sleep een post naar een hoofdstuk of gebruik de pijlen voor precieze volgorde.</span>
       </div>
       {bulkMessage && <div className="inline-success"><CheckCircle2 size={16}/>{bulkMessage}</div>}
-      <div className="table-wrap boq-table">
+      <div className={`calculation-structure-layout mode-${viewMode}`}>
+      {viewMode!=='table'&&<Suspense fallback={<div className="calculation-tree-loading">Calculatieboom laden…</div>}><CalculationTreePanel calculation={calculation} project={project} progressStatements={progressStatements} users={companyUsers} versionCount={versionCount} scenarioCount={scenarioCount} selectedItemIds={selectedItemIds} activeNodeId={activeTreeNode?.id??'root'} onActiveNodeChange={setActiveTreeNode} onSelectionChange={setSelectedItemIds} onOpenItem={setAdvancedItem} onAddSubchapter={addSubchapter} onUpdateChapter={updateChapter} onUpdateItem={(item,patch)=>void actions.updateBoqItem(calculation.id,item.id,patch)} onMoveItem={moveItemToChapter} onMoveChapter={moveChapterToParent} onOpenIntegration={openIntegration}/></Suspense>}
+      {viewMode!=='tree'&&<div className="calculation-table-pane"><div className="calculation-table-scope"><span>{activeTreeNode&&activeTreeNode.kind!=='root'?<>Gefilterd op <strong>{activeTreeNode.code} · {activeTreeNode.label}</strong></>:<>Volledige meetstaat</>}</span><em>{visibleItemId?1:tableChapters.reduce((sum,chapter)=>sum+(itemsByChapter.get(chapter.id)?.length??0),0)+tableUngroupedItems.length} posten</em></div><div className="table-wrap boq-table">
         <table>
           <thead>
             <tr>
@@ -5653,8 +5701,9 @@ function BoqEditor({
             </tr>
           </thead>
           <tbody>
-            {orderedChapters.map((chapter) => {
-              const chapterItems = itemsByChapter.get(chapter.id) ?? [];
+            {tableChapters.map((chapter) => {
+              const chapterItems = (itemsByChapter.get(chapter.id) ?? []).filter(item=>!visibleItemId||item.id===visibleItemId);
+              if(!chapterItems.length&&visibleItemId)return null;
               const collapsed = !expandedChapterIds.has(chapter.id);
               return (
                 <Fragment key={chapter.id}>
@@ -5699,15 +5748,15 @@ function BoqEditor({
                 </Fragment>
               );
             })}
-            {ungroupedItems.length > 0 && (
+            {tableUngroupedItems.length > 0 && (
               <Fragment>
                 <tr className="chapter-row ungrouped">
                   <td className="chapter-order-cell"></td><td colSpan={9}>
                     <strong>Zonder hoofdstuk</strong>
-                    <span>{ungroupedItems.length} posten</span>
+                    <span>{tableUngroupedItems.length} posten</span>
                   </td>
                 </tr>
-                {ungroupedItems.map((item, itemIndex) => (
+                {tableUngroupedItems.map((item, itemIndex) => (
                   <BoqItemRow
                     key={item.id}
                     calculation={calculation}
@@ -5719,7 +5768,7 @@ function BoqEditor({
                     onSelect={(selected) => setSelectedItemIds((current) => { const next = new Set(current); if(selected) next.add(item.id); else next.delete(item.id); return next; })}
                     onMove={(offset)=>moveItem(item.id,offset)}
                     canMoveUp={itemIndex > 0}
-                    canMoveDown={itemIndex < ungroupedItems.length - 1}
+                    canMoveDown={itemIndex < tableUngroupedItems.length - 1}
                     onAdvanced={()=>setAdvancedItem(item)}
                     onFormula={(target)=>setFormulaEditor({item,target})}
                     onDragStart={()=>setDraggedItemId(item.id)}
@@ -5730,6 +5779,7 @@ function BoqEditor({
             )}
           </tbody>
         </table>
+      </div></div>}
       </div>
       <form className="add-item-form" onSubmit={submit}>
         <select aria-label="Posttype" value={draft.postType??'Meetstaatpost'} onChange={event=>setDraft({...draft,postType:event.target.value as BoqPostType})}>{['Meetstaatpost','Samengestelde post','Percentagepost','Stelpost','Optiepost','Tekstregel','Subtotaal'].map(type=><option key={type}>{type}</option>)}</select>

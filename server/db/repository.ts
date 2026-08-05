@@ -122,6 +122,7 @@ interface UnitConversionRow extends QueryResultRow { id: string; from_unit_id: s
 
 interface BoqChapterRow extends QueryResultRow {
   id: string; calculation_id: string; code: string; name: string; sort_order: number
+  parent_chapter_id: string | null; responsible_user_id: string | null; workflow_status: BoqChapter['workflowStatus']
 }
 
 interface CalculationVersionRow extends QueryResultRow {
@@ -347,10 +348,10 @@ function mapOpportunity(row: OpportunityRow): Opportunity {
 function mapItem(row: BoqItemRow): BoqItem {
   const costApplications = typeof row.cost_applications === 'string' ? JSON.parse(row.cost_applications) as BoqItem['costApplications'] : row.cost_applications
   const advanced = typeof row.advanced === 'string' ? JSON.parse(row.advanced) as Partial<BoqItem> : row.advanced
-  return { id: row.id, chapterId: row.chapter_id ?? undefined, sortOrder: Number(row.sort_order), code: row.code, description: row.description, quantity: Number(row.quantity), unit: row.unit, labor: Number(row.labor), material: Number(row.material), equipment: Number(row.equipment), subcontracting: Number(row.subcontracting), postType:advanced?.postType??'Meetstaatpost', quantityType: advanced?.quantityType ?? 'Vermoedelijk', wastePct: Number(advanced?.wastePct ?? 0), itemRiskPct: Number(advanced?.itemRiskPct ?? 0), markupPct: Number(advanced?.markupPct ?? 0), notes: advanced?.notes ?? '', variables:advanced?.variables??[], formulas:advanced?.formulas??{}, priceAdjustments:advanced?.priceAdjustments??[], costApplications: costApplications ?? {} }
+  return { id: row.id, chapterId: row.chapter_id ?? undefined, sortOrder: Number(row.sort_order), code: row.code, description: row.description, quantity: Number(row.quantity), unit: row.unit, labor: Number(row.labor), material: Number(row.material), equipment: Number(row.equipment), subcontracting: Number(row.subcontracting), postType:advanced?.postType??'Meetstaatpost', quantityType: advanced?.quantityType ?? 'Vermoedelijk', wastePct: Number(advanced?.wastePct ?? 0), itemRiskPct: Number(advanced?.itemRiskPct ?? 0), markupPct: Number(advanced?.markupPct ?? 0), notes: advanced?.notes ?? '', variables:advanced?.variables??[], formulas:advanced?.formulas??{}, priceAdjustments:advanced?.priceAdjustments??[], responsibleUserId:advanced?.responsibleUserId, workflowStatus:advanced?.workflowStatus??'Niet gestart', workPackageId:advanced?.workPackageId, planningActivityId:advanced?.planningActivityId, bimElementIds:advanced?.bimElementIds??[], lidarScanIds:advanced?.lidarScanIds??[], costApplications: costApplications ?? {} }
 }
 
-function itemAdvanced(item:BoqItem){return{postType:item.postType??'Meetstaatpost',quantityType:item.quantityType??'Vermoedelijk',wastePct:item.wastePct??0,itemRiskPct:item.itemRiskPct??0,markupPct:item.markupPct??0,notes:item.notes??'',variables:item.variables??[],formulas:item.formulas??{},priceAdjustments:item.priceAdjustments??[]}}
+function itemAdvanced(item:BoqItem){return{postType:item.postType??'Meetstaatpost',quantityType:item.quantityType??'Vermoedelijk',wastePct:item.wastePct??0,itemRiskPct:item.itemRiskPct??0,markupPct:item.markupPct??0,notes:item.notes??'',variables:item.variables??[],formulas:item.formulas??{},priceAdjustments:item.priceAdjustments??[],responsibleUserId:item.responsibleUserId,workflowStatus:item.workflowStatus??'Niet gestart',workPackageId:item.workPackageId,planningActivityId:item.planningActivityId,bimElementIds:item.bimElementIds??[],lidarScanIds:item.lidarScanIds??[]}}
 
 function mapCostLibraryItem(row: CostLibraryItemRow): CostLibraryItem {
   return { id: row.id, libraryVersionId: row.library_version_id ?? DEFAULT_COST_LIBRARY_VERSION_ID, code: row.code, name: row.name, category: row.category, unit: row.unit, unitCost: Number(row.unit_cost), source: row.source, updatedAt: iso(row.updated_at) }
@@ -637,7 +638,7 @@ const defaultQuoteWorkflow = (quote: Pick<Quote, 'createdAt' | 'content'>): Quot
 })
 
 function mapChapter(row: BoqChapterRow): BoqChapter {
-  return { id: row.id, code: row.code, name: row.name, sortOrder: Number(row.sort_order) }
+  return { id: row.id, code: row.code, name: row.name, sortOrder: Number(row.sort_order), parentChapterId: row.parent_chapter_id ?? undefined, responsibleUserId: row.responsible_user_id ?? undefined, workflowStatus: row.workflow_status ?? 'Niet gestart' }
 }
 
 function mapCalculation(row: CalculationRow, chapters: BoqChapter[] = [], items: BoqItem[] = []): Calculation {
@@ -2106,27 +2107,32 @@ export class BouwFlowRepository {
     })
   }
 
-  async addChapter(context: RequestContext, calculationId: string, input: { code: string; name: string }): Promise<BoqChapter> {
+  async addChapter(context: RequestContext, calculationId: string, input: Pick<BoqChapter, 'code' | 'name' | 'parentChapterId' | 'responsibleUserId' | 'workflowStatus'>): Promise<BoqChapter> {
     return this.transaction(async client => {
       if (!await this.getCalculation(client, context.tenantId, calculationId)) throw new RepositoryError('Calculatie niet gevonden', 404)
       const existing = await client.query<BoqChapterRow>('SELECT * FROM boq_chapters WHERE tenant_id=$1 AND calculation_id=$2 AND code=$3', [context.tenantId, calculationId, input.code])
       if (existing.rowCount) return mapChapter(existing.rows[0])
       const count = await client.query<{ count: string }>('SELECT count(*)::text AS count FROM boq_chapters WHERE tenant_id=$1 AND calculation_id=$2', [context.tenantId, calculationId])
-      const chapter: BoqChapter = { id: randomUUID(), code: input.code, name: input.name, sortOrder: Number(count.rows[0].count) }
-      await client.query('INSERT INTO boq_chapters (tenant_id,id,calculation_id,code,name,sort_order) VALUES ($1,$2,$3,$4,$5,$6)', [context.tenantId, chapter.id, calculationId, chapter.code, chapter.name, chapter.sortOrder])
+      if (input.parentChapterId) {
+        const parent = await client.query('SELECT id FROM boq_chapters WHERE tenant_id=$1 AND calculation_id=$2 AND id=$3', [context.tenantId, calculationId, input.parentChapterId])
+        if (!parent.rowCount) throw new RepositoryError('Bovenliggend hoofdstuk behoort niet tot deze calculatie', 409)
+      }
+      const chapter: BoqChapter = { id: randomUUID(), code: input.code, name: input.name, sortOrder: Number(count.rows[0].count), parentChapterId: input.parentChapterId ?? undefined, responsibleUserId: input.responsibleUserId, workflowStatus: input.workflowStatus ?? 'Niet gestart' }
+      await client.query('INSERT INTO boq_chapters (tenant_id,id,calculation_id,code,name,sort_order,parent_chapter_id,responsible_user_id,workflow_status) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)', [context.tenantId, chapter.id, calculationId, chapter.code, chapter.name, chapter.sortOrder, chapter.parentChapterId ?? null, chapter.responsibleUserId ?? null, chapter.workflowStatus])
       await client.query('UPDATE calculations SET updated_at=now() WHERE tenant_id=$1 AND id=$2', [context.tenantId, calculationId])
       await this.audit(client, context, 'boq_chapter', chapter.id, 'created', null, chapter)
       return chapter
     })
   }
 
-  async updateCalculationStructure(context: RequestContext, calculationId: string, input: { chapters: Array<{ id: string; sortOrder: number }>; items: Array<{ id: string; chapterId?: string | null; sortOrder: number }> }): Promise<Calculation> {
+  async updateCalculationStructure(context: RequestContext, calculationId: string, input: { chapters: Array<{ id: string; sortOrder: number; code?: string; name?: string; parentChapterId?: string | null; responsibleUserId?: string | null; workflowStatus?: BoqChapter['workflowStatus'] }>; items: Array<{ id: string; chapterId?: string | null; sortOrder: number }> }): Promise<Calculation> {
     return this.transaction(async client => {
       if (!await this.getCalculation(client, context.tenantId, calculationId)) throw new RepositoryError('Calculatie niet gevonden', 404)
       const allowedChapters = new Set((await client.query<{ id: string }>('SELECT id FROM boq_chapters WHERE tenant_id=$1 AND calculation_id=$2', [context.tenantId, calculationId])).rows.map(row => row.id))
       for (const chapter of input.chapters) {
         if (!allowedChapters.has(chapter.id)) throw new RepositoryError('Hoofdstuk behoort niet tot deze calculatie', 409)
-        await client.query('UPDATE boq_chapters SET sort_order=$4 WHERE tenant_id=$1 AND calculation_id=$2 AND id=$3', [context.tenantId, calculationId, chapter.id, chapter.sortOrder])
+        if (chapter.parentChapterId === chapter.id || (chapter.parentChapterId && !allowedChapters.has(chapter.parentChapterId))) throw new RepositoryError('Ongeldig bovenliggend hoofdstuk', 409)
+        await client.query('UPDATE boq_chapters SET sort_order=$4,parent_chapter_id=$5,responsible_user_id=$6,workflow_status=$7,code=COALESCE($8,code),name=COALESCE($9,name) WHERE tenant_id=$1 AND calculation_id=$2 AND id=$3', [context.tenantId, calculationId, chapter.id, chapter.sortOrder, chapter.parentChapterId ?? null, chapter.responsibleUserId ?? null, chapter.workflowStatus ?? 'Niet gestart', chapter.code ?? null, chapter.name ?? null])
       }
       for (const item of input.items) {
         if (item.chapterId && !allowedChapters.has(item.chapterId)) throw new RepositoryError('Doelhoofdstuk behoort niet tot deze calculatie', 409)
@@ -2988,7 +2994,7 @@ export class BouwFlowRepository {
         let code=proposed.boqItem.code
         if(existingCodes.has(code)){let sequence=2;while(existingCodes.has(`${code}.${sequence}`))sequence+=1;code=`${code}.${sequence}`}
         existingCodes.add(code)
-        const item:BoqItem={...proposed.boqItem,id:randomUUID(),chapterId:chapter.id,sortOrder:itemOrder++}
+        const item:BoqItem={...proposed.boqItem,id:randomUUID(),chapterId:chapter.id,sortOrder:itemOrder++,lidarScanIds:[id],workflowStatus:proposed.reviewReasons.length?'Ter controle':'In bewerking'}
         item.code=code
         await client.query(`INSERT INTO boq_items (tenant_id,id,calculation_id,chapter_id,code,description,quantity,unit,labor,material,equipment,subcontracting,advanced,sort_order) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,[context.tenantId,item.id,current.calculationId,chapter.id,item.code,item.description,item.quantity,item.unit,item.labor,item.material,item.equipment,item.subcontracting,JSON.stringify(itemAdvanced(item)),item.sortOrder])
         createdItemIds.push(item.id)

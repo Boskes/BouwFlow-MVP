@@ -1179,7 +1179,7 @@ export function useBouwFlowStore(tokenProvider?: () => Promise<string | undefine
         return { ...current, calculations: current.calculations.map(calculation => calculation.id === calculationId ? { ...calculation, updatedAt: todayIso(), items: calculation.items.map(item => item.id === itemId ? { ...item, [libraryItem.category]: appliedUnitCost, costApplications: { ...item.costApplications, [libraryItem.category]: { libraryItemId, factor, appliedUnitCost } } } : item) } : calculation) }
       })
     },
-    async addChapter(calculationId: string, input: Pick<BoqChapter, 'code' | 'name'>) {
+    async addChapter(calculationId: string, input: Pick<BoqChapter, 'code' | 'name'> & Partial<Pick<BoqChapter, 'parentChapterId' | 'responsibleUserId' | 'workflowStatus'>>) {
       if (api) {
         return remote(() => api.addChapter(calculationId, input), chapter => setState(current => ({ ...current, calculations: current.calculations.map(calculation => calculation.id === calculationId ? { ...calculation, chapters: [...calculation.chapters, chapter] } : calculation) })))
       }
@@ -1195,14 +1195,14 @@ export function useBouwFlowStore(tokenProvider?: () => Promise<string | undefine
         return { ...current, calculations: current.calculations.map(item => item.id === calculationId ? { ...item, chapters: [...item.chapters, chapter], updatedAt: todayIso() } : item) }
       }))
     },
-    async updateCalculationStructure(calculationId: string, input: { chapters: Array<{ id: string; sortOrder: number }>; items: Array<{ id: string; chapterId?: string | null; sortOrder: number }> }) {
+    async updateCalculationStructure(calculationId: string, input: { chapters: Array<{ id: string; sortOrder: number; code?: string; name?: string; parentChapterId?: string | null; responsibleUserId?: string | null; workflowStatus?: BoqChapter['workflowStatus'] }>; items: Array<{ id: string; chapterId?: string | null; sortOrder: number }> }) {
       if (api) {
         await remote(() => api.updateCalculationStructure(calculationId, input), calculation => setState(current => ({ ...current, calculations: current.calculations.map(item => item.id === calculationId ? calculation : item) })))
         return
       }
-      const chapters = new Map(input.chapters.map(item => [item.id, item.sortOrder]))
+      const chapters = new Map(input.chapters.map(item => [item.id, item]))
       const items = new Map(input.items.map(item => [item.id, item]))
-      setState(current => ({ ...current, calculations: current.calculations.map(calculation => calculation.id === calculationId ? { ...calculation, chapters: calculation.chapters.map(chapter => ({ ...chapter, sortOrder: chapters.get(chapter.id) ?? chapter.sortOrder })), items: calculation.items.map(item => { const next = items.get(item.id); return next ? { ...item, chapterId: next.chapterId, sortOrder: next.sortOrder } : item }), updatedAt: todayIso() } : calculation) }))
+      setState(current => ({ ...current, calculations: current.calculations.map(calculation => calculation.id === calculationId ? { ...calculation, chapters: calculation.chapters.map(chapter => { const next=chapters.get(chapter.id); return next ? { ...chapter, code: next.code ?? chapter.code, name: next.name ?? chapter.name, sortOrder: next.sortOrder, parentChapterId: next.parentChapterId ?? undefined, responsibleUserId: next.responsibleUserId ?? undefined, workflowStatus: next.workflowStatus ?? 'Niet gestart' } : chapter }), items: calculation.items.map(item => { const next = items.get(item.id); return next ? { ...item, chapterId: next.chapterId, sortOrder: next.sortOrder } : item }), updatedAt: todayIso() } : calculation) }))
     },
     async applyCalculationTemplate(calculationId: string, templateId: string) {
       const template = class8CalculationTemplates.find(item => item.id === templateId)

@@ -456,6 +456,12 @@ export interface BoqItem {
   formulas?: Partial<Record<BoqFormulaTarget, BoqFormula>>
   priceAdjustments?: BoqPriceAdjustment[]
   costApplications?: Partial<Record<CostCategory, CostApplication>>
+  responsibleUserId?: string
+  workflowStatus?: 'Niet gestart' | 'In bewerking' | 'Ter controle' | 'Goedgekeurd'
+  workPackageId?: string
+  planningActivityId?: string
+  bimElementIds?: string[]
+  lidarScanIds?: string[]
 }
 
 export interface BoqChapter {
@@ -463,6 +469,9 @@ export interface BoqChapter {
   code: string
   name: string
   sortOrder: number
+  parentChapterId?: string | null
+  responsibleUserId?: string
+  workflowStatus?: 'Niet gestart' | 'In bewerking' | 'Ter controle' | 'Goedgekeurd'
 }
 
 export interface Calculation {
