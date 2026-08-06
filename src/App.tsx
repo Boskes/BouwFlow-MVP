@@ -99,9 +99,11 @@ const ContractWorkspaceDialogs = lazy(() => import('./ContractWorkspaceDialogs')
 const ModuleWorkspaceTabs = lazy(() => import('./ModuleWorkspaceTabs'))
 const WorkspaceWindowButton = lazy(() => import('./WorkspaceWindowButton'))
 const CalculationTreePanel = lazy(() => import('./CalculationTreePanel'))
+const CalculationProfessionalPanel = lazy(() => import('./CalculationProfessionalPanel'))
 const CheckinatworkWorkspace = lazy(() => import('./CheckinatworkWorkspace').then(module => ({ default: module.CheckinatworkWorkspace })))
 import type { IfcViewerCommand, IfcViewerElement } from "./BimIfcViewer";
 import { chapterDescendantIds, type CalculationTreeIntegration, type CalculationTreeNode } from './calculation-tree'
+import type { CalculationWorkspaceMode } from './CalculationProfessionalPanel'
 import { openWorkspaceWindow } from './workspace-window'
 import {
   autoSchedulePlanningActivities,
@@ -4260,6 +4262,8 @@ function Calculations({
           onExternalTransfer={requestTransfer}
           onOpenBim={()=>setBimOpen(true)}
           onOpenLidar={()=>setLidarCalculationOpen(true)}
+          onCaptureVersion={()=>setVersionOpen(true)}
+          onCompareVersions={()=>setVersionCompareOpen(true)}
           actions={actions}
         />
         <section className="panel quote-panel">
@@ -5490,6 +5494,8 @@ function BoqEditor({
   onExternalTransfer,
   onOpenBim,
   onOpenLidar,
+  onCaptureVersion,
+  onCompareVersions,
   actions,
 }: {
   calculation: Calculation;
@@ -5508,6 +5514,8 @@ function BoqEditor({
   onExternalTransfer:(payload:CalculationTransferPayload,targetChapterId?:string|null)=>void;
   onOpenBim:()=>void;
   onOpenLidar:()=>void;
+  onCaptureVersion:()=>void;
+  onCompareVersions:()=>void;
   actions: ReturnType<typeof useBouwFlowStore>["actions"];
 }) {
   const emptyItem = {
@@ -5531,6 +5539,9 @@ function BoqEditor({
   const [draggedItemId, setDraggedItemId] = useState<string>();
   const viewPreferenceKey = `bouwflow-calculation-view:${calculation.id}`;
   const [viewMode,setViewMode]=useState<'tree'|'split'|'table'>(()=>{try{const value=localStorage.getItem(viewPreferenceKey);return value==='tree'||value==='table'?value:'split'}catch{return 'split'}});
+  const workspacePreferenceKey = `bouwflow-calculation-workspace:${calculation.id}`;
+  const [workspaceMode,setWorkspaceMode]=useState<CalculationWorkspaceMode>(()=>{try{const value=localStorage.getItem(workspacePreferenceKey);return value==='packages'||value==='focus'||value==='bim'||value==='review'?value:'explorer'}catch{return 'explorer'}});
+  const [professionalChapterId,setProfessionalChapterId]=useState<string>();
   const [activeTreeNode,setActiveTreeNode]=useState<CalculationTreeNode>();
   const [bulkCostOpen, setBulkCostOpen] = useState(false);
   const [bulkAdjustmentOpen, setBulkAdjustmentOpen] = useState(false);
@@ -5573,6 +5584,7 @@ function BoqEditor({
     item => !item.chapterId || !chapterIds.has(item.chapterId),
   ), [chapterIds, orderedItems]);
   useEffect(()=>{try{localStorage.setItem(viewPreferenceKey,viewMode)}catch{/* Voorkeur is optioneel. */}},[viewMode,viewPreferenceKey]);
+  useEffect(()=>{try{localStorage.setItem(workspacePreferenceKey,workspaceMode)}catch{/* Voorkeur is optioneel. */}},[workspaceMode,workspacePreferenceKey]);
   const activeChapterIds=useMemo(()=>activeTreeNode?.chapter?chapterDescendantIds(activeTreeNode.chapter.id,calculation.chapters):undefined,[activeTreeNode,calculation.chapters]);
   const visibleItemId=activeTreeNode?.item?.id;
   const tableChapters=activeTreeNode?.kind==='ungrouped'||(activeTreeNode?.item&&!activeTreeNode.item.chapterId)?[]:activeTreeNode?.item?orderedChapters.filter(chapter=>chapter.id===activeTreeNode.item?.chapterId):activeChapterIds?orderedChapters.filter(chapter=>activeChapterIds.has(chapter.id)):orderedChapters;
@@ -5637,8 +5649,16 @@ function BoqEditor({
         eyebrow="Meetstaat en kostprijs"
         title={`${calculation.chapters.length} hoofdstukken · ${calculation.items.length} posten`}
       />
+      <nav className="calculation-professional-switch" aria-label="Professionele calculatiewerkruimte">
+        <button type="button" className={workspaceMode==='explorer'?'active':''} onClick={()=>setWorkspaceMode('explorer')}><PanelLeftOpen size={17}/><span><strong>Projectverkenner</strong><small>Boom en meetstaat</small></span></button>
+        <button type="button" className={workspaceMode==='packages'?'active':''} onClick={()=>setWorkspaceMode('packages')}><FolderKanban size={17}/><span><strong>Werkpakketten</strong><small>Team en tenderflow</small></span></button>
+        <button type="button" className={workspaceMode==='focus'?'active':''} onClick={()=>setWorkspaceMode('focus')}><Pencil size={17}/><span><strong>Focusmodus</strong><small>Snel begroten</small></span></button>
+        <button type="button" className={workspaceMode==='bim'?'active':''} onClick={()=>setWorkspaceMode('bim')}><Boxes size={17}/><span><strong>BIM 5D</strong><small>Modelgestuurd</small></span></button>
+        <button type="button" className={workspaceMode==='review'?'active':''} onClick={()=>setWorkspaceMode('review')}><ShieldCheck size={17}/><span><strong>Reviewcockpit</strong><small>Controle en akkoord</small></span></button>
+      </nav>
+      {workspaceMode==='explorer'?<>
       <div className="calculation-view-switch" role="group" aria-label="Weergave calculatie">
-        <span>Weergave</span>
+        <span>Werkblad</span>
         <button type="button" className={viewMode==='tree'?'active':''} onClick={()=>setViewMode('tree')}><GitBranch size={14}/>Boom</button>
         <button type="button" className={viewMode==='split'?'active':''} onClick={()=>setViewMode('split')}><PanelLeftOpen size={14}/>Boom + meetstaat</button>
         <button type="button" className={viewMode==='table'?'active':''} onClick={()=>setViewMode('table')}><ClipboardList size={14}/>Meetstaat</button>
@@ -5839,6 +5859,7 @@ function BoqEditor({
           <strong>{money(sellingTotal(calculation))}</strong>
         </div>
       </div>
+      </>:<Suspense fallback={<div className="calculation-professional-empty">Calculatiewerkruimte laden…</div>}><CalculationProfessionalPanel mode={workspaceMode} calculation={calculation} project={project} progressStatements={progressStatements} users={companyUsers} versionCount={versionCount} scenarioCount={scenarioCount} initialChapterId={professionalChapterId??activeTreeNode?.chapter?.id??activeTreeNode?.item?.chapterId??undefined} onOpenItem={setAdvancedItem} onUpdateItem={(item,patch)=>void actions.updateBoqItem(calculation.id,item.id,patch)} onUpdateChapter={updateChapter} onFocusChapter={chapterId=>{setProfessionalChapterId(chapterId);setWorkspaceMode('focus')}} onOpenBim={onOpenBim} onOpenLidar={onOpenLidar} onCaptureVersion={onCaptureVersion} onCompareVersions={onCompareVersions}/></Suspense>}
       {costPickerItem && (
         <ApplyCostDialog
           calculation={calculation}
